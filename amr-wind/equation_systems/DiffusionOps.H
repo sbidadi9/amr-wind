@@ -48,6 +48,9 @@ public:
 
     virtual void set_acoeffs(LinOp& linop, const FieldState fstate);
 
+    virtual void set_acoeffs_implicit(
+        LinOp& linop, const amrex::Real dt, const FieldState fstate);
+
     template <typename L>
     void set_bcoeffs(
         L& linop,
