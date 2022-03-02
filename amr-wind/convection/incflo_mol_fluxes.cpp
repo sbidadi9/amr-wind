@@ -16,12 +16,13 @@ void mol::compute_convective_rate(
 {
     BL_PROFILE("amr-wind::mol::compute_convective_rate");
     const auto dxinv = dxi;
+
     amrex::ParallelFor(
         bx, ncomp, [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
             dUdt(i, j, k, n) =
-                dxinv[0] * (fx(i, j, k, n) - fx(i + 1, j, k, n)) +
-                dxinv[1] * (fy(i, j, k, n) - fy(i, j + 1, k, n)) +
-                dxinv[2] * (fz(i, j, k, n) - fz(i, j, k + 1, n));
+                (dxinv[0] * (fx(i, j, k, n) - fx(i + 1, j, k, n)) +
+                 dxinv[1] * (fy(i, j, k, n) - fy(i, j + 1, k, n)) +
+                 dxinv[2] * (fz(i, j, k, n) - fz(i, j, k + 1, n)));
         });
 }
 
