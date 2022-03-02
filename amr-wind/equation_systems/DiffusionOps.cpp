@@ -58,6 +58,7 @@ void DiffSolverIface<LinOp>::setup_operator(
     const amrex::Real beta,
     const FieldState fstate)
 {
+
     BL_PROFILE("amr-wind::setup_operator");
     auto& repo = m_pdefields.repo;
     const int nlevels = repo.num_active_levels();
@@ -66,10 +67,9 @@ void DiffSolverIface<LinOp>::setup_operator(
     for (int lev = 0; lev < nlevels; ++lev) {
         linop.setLevelBC(lev, &m_pdefields.field(lev));
     }
-    //    this->set_acoeffs(linop, fstate);
 
     this->set_acoeffs_implicit(linop, beta, fstate);
-
+    //      this->set_acoeffs(linop, fstate);
     set_bcoeffs(linop);
 }
 
@@ -118,7 +118,7 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
     auto& v_mac = repo.get_field("v_mac");
     auto& w_mac = repo.get_field("w_mac");
 
-    auto new_diag_ptr = repo.create_scratch_field("new_diag", 1, 1);
+    auto new_diag_ptr = repo.create_scratch_field("new_diag", 1, 0);
 
     constexpr amrex::Real small_vel = 1.e-10;
 
@@ -163,6 +163,7 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
                                     a_vmac(i, j, k) * delta_mns_vmac) +
                         dxinv[2] * (a_wmac(i, j, k + 1) * delta_pls_wmac -
                                     a_wmac(i, j, k) * delta_mns_wmac);
+
                     new_diag_a(i, j, k) = rho(i, j, k) * (1.0 + dt * net_coeff);
                 });
         }
