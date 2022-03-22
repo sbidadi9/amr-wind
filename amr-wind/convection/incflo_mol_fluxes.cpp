@@ -29,7 +29,7 @@ void mol::compute_convective_rate(
 void mol::compute_convective_rate_implicit_correction(
     Box const& bx,
     int ncomp,
-    Array4<Real> const& dUdt,
+    Array4<Real> const& dUdt_diag,
     Array4<Real const> const& q,
     Array4<Real const> const& umac,
     Array4<Real const> const& vmac,
@@ -59,7 +59,15 @@ void mol::compute_convective_rate_implicit_correction(
                              dxinv[2] * (wmac(i, j, k + 1) * delta_pls_wmac -
                                          wmac(i, j, k) * delta_mns_wmac);
 
-            dUdt(i, j, k, n) = dUdt(i, j, k, n) + (net_coeff * q(i, j, k, n));
+            dUdt_diag(i, j, k, n) = net_coeff * q(i, j, k, n);
+
+            // Implicit
+            // dUdt(i, j, k, n) = dUdt(i, j, k, n) + (net_coeff * q(i, j, k,
+            // n));
+
+            // Crank-Nicholson
+            // dUdt(i, j, k, n) = (2.0* dUdt(i, j, k, n)) + (net_coeff * q(i, j,
+            // k, n));
         });
 }
 
@@ -145,6 +153,10 @@ void mol::compute_convective_fluxes(
                 Real qpls = q(i, j, k, n) - 0.5 * incflo_xslope(i, j, k, n, q);
                 Real qmns =
                     q(i - 1, j, k, n) + 0.5 * incflo_xslope(i - 1, j, k, n, q);
+
+                //                Real qpls = q(i, j, k, n);
+                //                Real qmns = q(i - 1, j, k, n);
+
                 Real qs;
                 if (umac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -207,6 +219,10 @@ void mol::compute_convective_fluxes(
                 Real qpls = q(i, j, k, n) - 0.5 * incflo_yslope(i, j, k, n, q);
                 Real qmns =
                     q(i, j - 1, k, n) + 0.5 * incflo_yslope(i, j - 1, k, n, q);
+
+                //                Real qpls = q(i, j, k, n);
+                //                Real qmns = q(i, j-1, k, n);
+
                 Real qs;
                 if (vmac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -269,6 +285,10 @@ void mol::compute_convective_fluxes(
                 Real qpls = q(i, j, k, n) - 0.5 * incflo_zslope(i, j, k, n, q);
                 Real qmns =
                     q(i, j, k - 1, n) + 0.5 * incflo_zslope(i, j, k - 1, n, q);
+
+                //                Real qpls = q(i, j, k, n);
+                //                Real qmns = q(i, j, k-1, n);
+
                 Real qs;
                 if (wmac(i, j, k) > small_vel) {
                     qs = qmns;

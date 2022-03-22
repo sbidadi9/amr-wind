@@ -3,6 +3,8 @@
 
 #include "AMReX_MLTensorOp.H"
 
+#include "amr-wind/incflo.H"
+
 namespace amr_wind {
 namespace pde {
 
@@ -58,7 +60,6 @@ void DiffSolverIface<LinOp>::setup_operator(
     const amrex::Real beta,
     const FieldState fstate)
 {
-
     BL_PROFILE("amr-wind::setup_operator");
     auto& repo = m_pdefields.repo;
     const int nlevels = repo.num_active_levels();
@@ -68,8 +69,12 @@ void DiffSolverIface<LinOp>::setup_operator(
         linop.setLevelBC(lev, &m_pdefields.field(lev));
     }
 
-    this->set_acoeffs_implicit(linop, beta, fstate);
-    //      this->set_acoeffs(linop, fstate);
+    if (beta >= 0.0) {
+        this->set_acoeffs_implicit(linop, beta, fstate);
+    } else {
+        this->set_acoeffs(linop, fstate);
+    }
+
     set_bcoeffs(linop);
 }
 
@@ -139,6 +144,9 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
             amrex::Array4<amrex::Real> const& a_vmac = v_mac(lev).array(mfi);
             amrex::Array4<amrex::Real> const& a_wmac = w_mac(lev).array(mfi);
 
+            //            amrex::Print().SetPrecision(3) << "(i,j) umE   umW vmE
+            //            vmW      wmE      wmW     nc    CFLImplicit\n";
+
             amrex::ParallelFor(
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
                     amrex::Real delta_pls_umac =
@@ -164,6 +172,19 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
                         dxinv[2] * (a_wmac(i, j, k + 1) * delta_pls_wmac -
                                     a_wmac(i, j, k) * delta_mns_wmac);
 
+                    amrex::Real prod = dt * net_coeff;
+
+                    /*                    amrex::Print().SetPrecision(3) << "("
+                       << i << "," << j << ") "
+                                                       << a_umac(i + 1, j, k) <<
+                       " " << a_umac(i, j, k) << " "
+                                                       << a_vmac(i, j + 1, k) <<
+                       " " << a_vmac(i, j, k) << " "
+                                                       << a_wmac(i, j, k+1) << "
+                       " << a_wmac(i, j, k) << " "
+                                                       << net_coeff << " " <<
+                       prod << "\n";
+                    */
                     new_diag_a(i, j, k) = rho(i, j, k) * (1.0 + dt * net_coeff);
                 });
         }

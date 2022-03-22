@@ -54,9 +54,7 @@ void incflo::advance()
 
     ApplyPredictor();
 
-    if (!m_use_godunov) {
-        ApplyCorrector();
-    }
+    if (!m_use_godunov) ApplyCorrector();
 }
 
 // Apply predictor step
