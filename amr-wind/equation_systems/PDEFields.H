@@ -41,6 +41,9 @@ struct PDEFields
     Field& diff_term;
     //! Convective term for this PDE
     Field& conv_term;
+
+    //! Diagonal convective term for this PDE
+    Field& conv_term_diag;
 };
 
 } // namespace pde

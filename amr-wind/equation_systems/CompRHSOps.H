@@ -71,6 +71,9 @@ struct ComputeRHSOp
         auto& diff_term = fields.diff_term.state(fstate);
         auto& conv_term = fields.conv_term.state(fstate);
         auto& mask_cell = fields.repo.get_int_field("mask_cell");
+
+        auto& conv_term_diag = fields.conv_term_diag.state(fstate);
+
         Field const* mesh_detJ =
             mesh_mapping ? &(fields.repo.get_mesh_mapping_detJ(FieldLoc::CELL))
                          : nullptr;
@@ -89,6 +92,9 @@ struct ComputeRHSOp
                 const auto diff = diff_term(lev).const_array(mfi);
                 const auto ddt_o = conv_term(lev).const_array(mfi);
                 const auto imask = mask_cell(lev).const_array(mfi);
+
+                const auto ddt_diag_o = conv_term_diag(lev).const_array(mfi);
+
                 amrex::Array4<amrex::Real const> detJ =
                     mesh_mapping ? ((*mesh_detJ)(lev).const_array(mfi))
                                  : amrex::Array4<amrex::Real const>();
@@ -124,12 +130,23 @@ struct ComputeRHSOp
                             amrex::Real det_j =
                                 mesh_mapping ? (detJ(i, j, k)) : 1.0;
 
+                            // Implicit
                             fld(i, j, k, n) =
                                 det_j * fld_o(i, j, k, n) +
                                 static_cast<amrex::Real>(imask(i, j, k)) * dt *
-                                    (factor * ddt_o(i, j, k, n) +
+                                    ((ddt_o(i, j, k, n) +
+                                      ddt_diag_o(i, j, k, n)) +
                                      det_j * src(i, j, k, n) +
                                      factor * diff(i, j, k, n));
+
+                            // Crank-Nicholson
+                            /*
+                                                        fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt * (factor * ddt_o(i, j, k, n) + det_j *
+                               src(i, j, k, n) + factor * diff(i, j, k, n));
+                            */
 
                             if (difftype == DiffusionType::Explicit) {
                                 fld(i, j, k, n) /= det_j;
@@ -187,8 +204,14 @@ struct ComputeRHSOp
         auto& src_term = fields.src_term;
         auto& diff_term = fields.diff_term;
         auto& conv_term = fields.conv_term;
+
+        auto& conv_term_diag = fields.conv_term_diag;
+
         auto& diff_term_old = fields.diff_term.state(FieldState::Old);
         auto& conv_term_old = fields.conv_term.state(FieldState::Old);
+
+        auto& conv_term_diag_old = fields.conv_term_diag.state(FieldState::Old);
+
         auto& mask_cell = fields.repo.get_int_field("mask_cell");
         Field const* mesh_detJ =
             mesh_mapping ? &(fields.repo.get_mesh_mapping_detJ(FieldLoc::CELL))
@@ -209,6 +232,11 @@ struct ComputeRHSOp
                 const auto ddt = conv_term(lev).const_array(mfi);
                 const auto diff_o = diff_term_old(lev).const_array(mfi);
                 const auto ddt_o = conv_term_old(lev).const_array(mfi);
+
+                const auto ddt_diag = conv_term_diag(lev).const_array(mfi);
+                const auto ddt_diag_o =
+                    conv_term_diag_old(lev).const_array(mfi);
+
                 const auto imask = mask_cell(lev).const_array(mfi);
                 amrex::Array4<amrex::Real const> detJ =
                     mesh_mapping ? ((*mesh_detJ)(lev).const_array(mfi))
@@ -247,17 +275,56 @@ struct ComputeRHSOp
                             amrex::Real det_j =
                                 mesh_mapping ? (detJ(i, j, k)) : 1.0;
 
+                            /*
+                                                        fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt * (0.5 * (ddt_o(i, j, k, n) + ddt(i, j, k,
+                               n)) + ofac * diff_o(i, j, k, n) + nfac * diff(i,
+                               j, k, n) + det_j * src(i, j, k, n));
+                            */
+
+                            // Implicit
                             fld(i, j, k, n) =
                                 det_j * fld_o(i, j, k, n) +
                                 static_cast<amrex::Real>(imask(i, j, k)) * dt *
-                                    //                                    (0.5 *
-                                    //                                         (ddt_o(i, j, k, n) + ddt(i, j, k, n))
-                                    //                                     (ddt(i,j,k,n)
-                                    //                                     +
-                                    (ofac * ddt_o(i, j, k, n) +
+                                    ((ddt(i, j, k, n) + ddt_diag(i, j, k, n)) +
                                      ofac * diff_o(i, j, k, n) +
                                      nfac * diff(i, j, k, n) +
                                      det_j * src(i, j, k, n));
+
+                            /*
+
+                                                        fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt * (0.5 *
+                                                                       ((ddt_o(i,
+                               j, k, n) + ddt(i, j, k, n)) + (ddt_diag_o(i, j,
+                               k, n) + ddt_diag(i, j, k, n))) + ofac * diff_o(i,
+                               j, k, n) + nfac * diff(i, j, k, n) + det_j *
+                               src(i, j, k, n));
+                            */
+
+                            /*
+                                                        fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt * (0.5 * (ddt_o(i, j, k, n) + ddt(i, j, k,
+                               n)) + (ddt_diag(i, j, k, n)) + ofac * diff_o(i,
+                               j, k, n) + nfac * diff(i, j, k, n) + det_j *
+                               src(i, j, k, n));
+                            */
+
+                            // Crank-Nicholson
+                            /*
+                                                        fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt * (ofac * ddt(i, j, k, n) + ofac * diff_o(i,
+                               j, k, n) + nfac * diff(i, j, k, n) + det_j *
+                               src(i, j, k, n));
+                            */
 
                             if (difftype == DiffusionType::Explicit) {
                                 fld(i, j, k, n) /= det_j;
