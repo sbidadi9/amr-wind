@@ -43,31 +43,30 @@ void mol::compute_convective_rate_implicit_correction(
 
     amrex::ParallelFor(
         bx, ncomp, [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-            Real delta_pls_umac = (umac(i + 1, j, k) > small_vel) ? 1.0 : 0.0;
-            Real delta_mns_umac = (umac(i, j, k) < -small_vel) ? 1.0 : 0.0;
+            const amrex::Real delta_pls_umac =
+                (umac(i + 1, j, k) > small_vel) ? 1.0 : 0.0;
+            const amrex::Real delta_mns_umac =
+                (umac(i, j, k) < -small_vel) ? 1.0 : 0.0;
 
-            Real delta_pls_vmac = (vmac(i, j + 1, k) > small_vel) ? 1.0 : 0.0;
-            Real delta_mns_vmac = (vmac(i, j, k) < -small_vel) ? 1.0 : 0.0;
+            const amrex::Real delta_pls_vmac =
+                (vmac(i, j + 1, k) > small_vel) ? 1.0 : 0.0;
+            const amrex::Real delta_mns_vmac =
+                (vmac(i, j, k) < -small_vel) ? 1.0 : 0.0;
 
-            Real delta_pls_wmac = (wmac(i, j, k + 1) > small_vel) ? 1.0 : 0.0;
-            Real delta_mns_wmac = (wmac(i, j, k) < -small_vel) ? 1.0 : 0.0;
+            const amrex::Real delta_pls_wmac =
+                (wmac(i, j, k + 1) > small_vel) ? 1.0 : 0.0;
+            const amrex::Real delta_mns_wmac =
+                (wmac(i, j, k) < -small_vel) ? 1.0 : 0.0;
 
-            Real net_coeff = dxinv[0] * (umac(i + 1, j, k) * delta_pls_umac -
-                                         umac(i, j, k) * delta_mns_umac) +
-                             dxinv[1] * (vmac(i, j + 1, k) * delta_pls_vmac -
-                                         vmac(i, j, k) * delta_mns_vmac) +
-                             dxinv[2] * (wmac(i, j, k + 1) * delta_pls_wmac -
-                                         wmac(i, j, k) * delta_mns_wmac);
+            const amrex::Real net_coeff =
+                dxinv[0] * (umac(i + 1, j, k) * delta_pls_umac -
+                            umac(i, j, k) * delta_mns_umac) +
+                dxinv[1] * (vmac(i, j + 1, k) * delta_pls_vmac -
+                            vmac(i, j, k) * delta_mns_vmac) +
+                dxinv[2] * (wmac(i, j, k + 1) * delta_pls_wmac -
+                            wmac(i, j, k) * delta_mns_wmac);
 
             dUdt_diag(i, j, k, n) = net_coeff * q(i, j, k, n);
-
-            // Implicit
-            // dUdt(i, j, k, n) = dUdt(i, j, k, n) + (net_coeff * q(i, j, k,
-            // n));
-
-            // Crank-Nicholson
-            // dUdt(i, j, k, n) = (2.0* dUdt(i, j, k, n)) + (net_coeff * q(i, j,
-            // k, n));
         });
 }
 
@@ -153,10 +152,6 @@ void mol::compute_convective_fluxes(
                 Real qpls = q(i, j, k, n) - 0.5 * incflo_xslope(i, j, k, n, q);
                 Real qmns =
                     q(i - 1, j, k, n) + 0.5 * incflo_xslope(i - 1, j, k, n, q);
-
-                //                Real qpls = q(i, j, k, n);
-                //                Real qmns = q(i - 1, j, k, n);
-
                 Real qs;
                 if (umac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -219,10 +214,6 @@ void mol::compute_convective_fluxes(
                 Real qpls = q(i, j, k, n) - 0.5 * incflo_yslope(i, j, k, n, q);
                 Real qmns =
                     q(i, j - 1, k, n) + 0.5 * incflo_yslope(i, j - 1, k, n, q);
-
-                //                Real qpls = q(i, j, k, n);
-                //                Real qmns = q(i, j-1, k, n);
-
                 Real qs;
                 if (vmac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -285,10 +276,6 @@ void mol::compute_convective_fluxes(
                 Real qpls = q(i, j, k, n) - 0.5 * incflo_zslope(i, j, k, n, q);
                 Real qmns =
                     q(i, j, k - 1, n) + 0.5 * incflo_zslope(i, j, k - 1, n, q);
-
-                //                Real qpls = q(i, j, k, n);
-                //                Real qmns = q(i, j, k-1, n);
-
                 Real qs;
                 if (wmac(i, j, k) > small_vel) {
                     qs = qmns;
