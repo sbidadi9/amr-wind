@@ -113,7 +113,6 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
     BL_PROFILE("amr-wind::set_acoeffs_implicit");
 
     auto& repo = m_pdefields.repo;
-    //    auto& field = this->m_pdefields.field;
     auto& geom = repo.mesh().Geom();
 
     const int nlevels = repo.num_active_levels();
@@ -123,48 +122,53 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
     auto& v_mac = repo.get_field("v_mac");
     auto& w_mac = repo.get_field("w_mac");
 
-    auto new_diag_ptr = repo.create_scratch_field("new_diag", 1, 0);
+    std::unique_ptr<ScratchField> new_diag_ptr =
+        repo.create_scratch_field(1, 0, FieldLoc::CELL);
 
     constexpr amrex::Real small_vel = 1.e-10;
 
     for (int lev = 0; lev < nlevels; ++lev) {
-        auto& new_diag = (*new_diag_ptr)(lev);
-        const auto dxinv = geom[lev].InvCellSizeArray();
+        (*new_diag_ptr)(lev).setVal(0.0);
+        amrex::MultiFab& new_diag = (*new_diag_ptr)(lev);
+        const amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> dxinv =
+            geom[lev].InvCellSizeArray();
 
 #ifdef _OPENMP
 #pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
 #endif
+
         for (amrex::MFIter mfi(new_diag, amrex::TilingIfNotGPU());
              mfi.isValid(); ++mfi) {
-            const auto& bx = mfi.tilebox();
-            const auto& new_diag_a = new_diag.array(mfi);
-            const auto& rho = density(lev).const_array(mfi);
+            const amrex::Box& bx = mfi.tilebox();
+            amrex::Array4<amrex::Real> const& new_diag_a = new_diag.array(mfi);
+            amrex::Array4<amrex::Real const> const& rho =
+                density(lev).const_array(mfi);
 
-            amrex::Array4<amrex::Real> const& a_umac = u_mac(lev).array(mfi);
-            amrex::Array4<amrex::Real> const& a_vmac = v_mac(lev).array(mfi);
-            amrex::Array4<amrex::Real> const& a_wmac = w_mac(lev).array(mfi);
-
-            //            amrex::Print().SetPrecision(3) << "(i,j) umE   umW vmE
-            //            vmW      wmE      wmW     nc    CFLImplicit\n";
+            amrex::Array4<amrex::Real const> const& a_umac =
+                u_mac(lev).const_array(mfi);
+            amrex::Array4<amrex::Real const> const& a_vmac =
+                v_mac(lev).const_array(mfi);
+            amrex::Array4<amrex::Real const> const& a_wmac =
+                w_mac(lev).const_array(mfi);
 
             amrex::ParallelFor(
                 bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                    amrex::Real delta_pls_umac =
+                    const amrex::Real delta_pls_umac =
                         (a_umac(i + 1, j, k) > small_vel) ? 1.0 : 0.0;
-                    amrex::Real delta_mns_umac =
+                    const amrex::Real delta_mns_umac =
                         (a_umac(i, j, k) < -small_vel) ? 1.0 : 0.0;
 
-                    amrex::Real delta_pls_vmac =
+                    const amrex::Real delta_pls_vmac =
                         (a_vmac(i, j + 1, k) > small_vel) ? 1.0 : 0.0;
-                    amrex::Real delta_mns_vmac =
+                    const amrex::Real delta_mns_vmac =
                         (a_vmac(i, j, k) < -small_vel) ? 1.0 : 0.0;
 
-                    amrex::Real delta_pls_wmac =
+                    const amrex::Real delta_pls_wmac =
                         (a_wmac(i, j, k + 1) > small_vel) ? 1.0 : 0.0;
-                    amrex::Real delta_mns_wmac =
+                    const amrex::Real delta_mns_wmac =
                         (a_wmac(i, j, k) < -small_vel) ? 1.0 : 0.0;
 
-                    amrex::Real net_coeff =
+                    const amrex::Real net_coeff =
                         dxinv[0] * (a_umac(i + 1, j, k) * delta_pls_umac -
                                     a_umac(i, j, k) * delta_mns_umac) +
                         dxinv[1] * (a_vmac(i, j + 1, k) * delta_pls_vmac -
@@ -172,19 +176,6 @@ void DiffSolverIface<LinOp>::set_acoeffs_implicit(
                         dxinv[2] * (a_wmac(i, j, k + 1) * delta_pls_wmac -
                                     a_wmac(i, j, k) * delta_mns_wmac);
 
-                    amrex::Real prod = dt * net_coeff;
-
-                    /*                    amrex::Print().SetPrecision(3) << "("
-                       << i << "," << j << ") "
-                                                       << a_umac(i + 1, j, k) <<
-                       " " << a_umac(i, j, k) << " "
-                                                       << a_vmac(i, j + 1, k) <<
-                       " " << a_vmac(i, j, k) << " "
-                                                       << a_wmac(i, j, k+1) << "
-                       " << a_wmac(i, j, k) << " "
-                                                       << net_coeff << " " <<
-                       prod << "\n";
-                    */
                     new_diag_a(i, j, k) = rho(i, j, k) * (1.0 + dt * net_coeff);
                 });
         }
