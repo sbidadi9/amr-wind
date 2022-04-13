@@ -71,6 +71,9 @@ public:
     //! Compute the diffusion term used in the RHS of the PDE system
     virtual void compute_diffusion_term(const FieldState fstate) = 0;
 
+    //! Compute the diffusion term used in the RHS of the PDE system
+    virtual void compute_diffusion_term_cd(const FieldState fstate) = 0;
+
     //! Perform necessary steps to prepare for advection calculations
     virtual void pre_advection_actions(const FieldState fstate) = 0;
 
@@ -85,6 +88,8 @@ public:
      */
     virtual void compute_predictor_rhs(const DiffusionType difftype) = 0;
 
+    virtual void compute_predictor_rhs_cd(const DiffusionType difftype) = 0;
+
     /** Combine the source, diffusion, and advection term to obtain RHS
      *
      *  This method behaves differently depending upon whether the diffusion
@@ -94,8 +99,12 @@ public:
      */
     virtual void compute_corrector_rhs(const DiffusionType difftype) = 0;
 
+    virtual void compute_corrector_rhs_cd(const DiffusionType difftype) = 0;
+
     //! Solve the diffusion linear system and update the field
     virtual void solve(const amrex::Real dt) = 0;
+
+    virtual void solve_cd(const amrex::Real dt) = 0;
 
     //! Perform post-processing actions after a system solve
     virtual void post_solve_actions() = 0;

@@ -241,7 +241,11 @@ void incflo::ApplyPredictor(bool incremental_projection)
                 field, field.state(amr_wind::FieldState::Old), 0, 0,
                 field.num_comp(), 1);
 
-            eqn->compute_diffusion_term(amr_wind::FieldState::Old);
+            // For explicit treatment of convective term
+            // eqn->compute_diffusion_term(amr_wind::FieldState::Old);
+
+            // For implicit treatment of convective term
+            eqn->compute_diffusion_term_cd(amr_wind::FieldState::Old);
 
             if (m_use_godunov) {
                 amr_wind::field_ops::add(
@@ -294,7 +298,8 @@ void incflo::ApplyPredictor(bool incremental_projection)
         eqn->compute_source_term(amr_wind::FieldState::NPH);
 
         // Update the scalar (if explicit), or the RHS for implicit/CN
-        eqn->compute_predictor_rhs(m_diff_type);
+        // eqn->compute_predictor_rhs(m_diff_type);
+        eqn->compute_predictor_rhs_cd(m_diff_type);
 
         auto& field = eqn->fields().field;
         if (m_diff_type != DiffusionType::Explicit) {
@@ -303,7 +308,11 @@ void incflo::ApplyPredictor(bool incremental_projection)
                                       : 0.5 * m_time.deltaT();
 
             // Solve diffusion eqn. and update of the scalar field
-            eqn->solve(dt_diff);
+            // For explicit treatment of convective term
+            // eqn->solve(dt_diff);
+
+            // For implicit treatment of convective term
+            eqn->solve_cd(dt_diff);
 
             // Post-processing actions after a PDE solve
         }
@@ -489,7 +498,11 @@ void incflo::ApplyCorrector()
         icns().compute_diffusion_term(amr_wind::FieldState::New);
 
         for (auto& eqns : scalar_eqns()) {
-            eqns->compute_diffusion_term(amr_wind::FieldState::New);
+            // For explicit treatment of convective term
+            // eqns->compute_diffusion_term(amr_wind::FieldState::New);
+
+            // For implicit treatment of convective term
+            eqns->compute_diffusion_term_cd(amr_wind::FieldState::New);
         }
     }
 
@@ -512,7 +525,8 @@ void incflo::ApplyCorrector()
         // Update (note that dtdt already has rho in it)
         // (rho trac)^new = (rho trac)^old + dt * (
         //                   div(rho trac u) + div (mu grad trac) + rho * f_t
-        eqn->compute_corrector_rhs(m_diff_type);
+        // eqn->compute_corrector_rhs(m_diff_type);
+        eqn->compute_corrector_rhs_cd(m_diff_type);
 
         auto& field = eqn->fields().field;
         if (m_diff_type != DiffusionType::Explicit) {
@@ -521,7 +535,11 @@ void incflo::ApplyCorrector()
                                       : 0.5 * m_time.deltaT();
 
             // Solve diffusion eqn. and update of the scalar field
-            eqn->solve(dt_diff);
+            // For explicit treatment of convective term
+            // eqn->solve(dt_diff);
+
+            // For implicit treatment of convective term
+            eqn->solve_cd(dt_diff);
         }
         eqn->post_solve_actions();
 

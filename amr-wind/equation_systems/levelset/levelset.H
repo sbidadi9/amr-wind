@@ -28,6 +28,7 @@ namespace pde {
 struct Levelset : ScalarTransport
 {
     using MLDiffOp = amrex::MLABecLaplacian;
+    using MLConvDiffOp = amrex::MLABecCecLaplacian;
     using SrcTerm = SourceTerm;
 
     static std::string pde_name() { return "Levelset"; }

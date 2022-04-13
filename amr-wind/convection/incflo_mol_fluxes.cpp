@@ -104,9 +104,13 @@ void mol::compute_convective_fluxes(
             xbx, ncomp,
             [q, umac,
              fx] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qpls = q(i, j, k, n) - 0.5 * incflo_xslope(i, j, k, n, q);
-                Real qmns =
-                    q(i - 1, j, k, n) + 0.5 * incflo_xslope(i - 1, j, k, n, q);
+//                Real qpls = q(i, j, k, n) - 0.5 * incflo_xslope(i, j, k, n, q);
+//                Real qmns =
+//                    q(i - 1, j, k, n) + 0.5 * incflo_xslope(i - 1, j, k, n, q);
+
+                Real qpls = q(i, j, k, n);
+                Real qmns = q(i - 1, j, k, n);
+
                 Real qs;
                 if (umac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -166,9 +170,13 @@ void mol::compute_convective_fluxes(
             ybx, ncomp,
             [q, vmac,
              fy] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qpls = q(i, j, k, n) - 0.5 * incflo_yslope(i, j, k, n, q);
-                Real qmns =
-                    q(i, j - 1, k, n) + 0.5 * incflo_yslope(i, j - 1, k, n, q);
+//                Real qpls = q(i, j, k, n) - 0.5 * incflo_yslope(i, j, k, n, q);
+//                Real qmns =
+//                    q(i, j - 1, k, n) + 0.5 * incflo_yslope(i, j - 1, k, n, q);
+
+                Real qpls = q(i, j, k, n);
+                Real qmns = q(i, j - 1, k, n);
+
                 Real qs;
                 if (vmac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -228,9 +236,13 @@ void mol::compute_convective_fluxes(
             zbx, ncomp,
             [q, wmac,
              fz] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qpls = q(i, j, k, n) - 0.5 * incflo_zslope(i, j, k, n, q);
-                Real qmns =
-                    q(i, j, k - 1, n) + 0.5 * incflo_zslope(i, j, k - 1, n, q);
+//                Real qpls = q(i, j, k, n) - 0.5 * incflo_zslope(i, j, k, n, q);
+//                Real qmns =
+//                    q(i, j, k - 1, n) + 0.5 * incflo_zslope(i, j, k - 1, n, q);
+
+                Real qpls = q(i, j, k, n);
+                Real qmns = q(i, j - 1, k, n);
+
                 Real qs;
                 if (wmac(i, j, k) > small_vel) {
                     qs = qmns;

@@ -13,6 +13,7 @@ namespace pde {
 struct Density : ScalarTransport
 {
     using MLDiffOp = amrex::MLABecLaplacian;
+    using MLConvDiffOp = amrex::MLABecCecLaplacian;
     using SrcTerm = DensitySource;
 
     static std::string pde_name() { return "Density"; }

@@ -43,7 +43,7 @@ void BoussinesqBubbleFieldInit::operator()(
 
         density(i, j, k) = rho;
 
-        velocity(i, j, k, 0) = 0.0;
+        velocity(i, j, k, 0) = 1.0;
         velocity(i, j, k, 1) = 0.0;
         velocity(i, j, k, 2) = 0.0;
 

@@ -61,6 +61,27 @@ struct ComputeRHSOp<VOF, Scheme>
     PDEFields& fields;
 };
 
+template <typename Scheme>
+struct ComputeRHSOpIc<VOF, Scheme>
+{
+    explicit ComputeRHSOpIc(PDEFields& fields_in) : fields(fields_in) {}
+
+    void predictor_rhs_ic(
+        const DiffusionType /*unused*/,
+        const amrex::Real /*unused*/,
+        bool /*unused*/)
+    {}
+
+    void corrector_rhs_ic(
+        const DiffusionType /*unused*/,
+        const amrex::Real /*unused*/,
+        bool /*unused*/)
+    {}
+
+    // data members
+    PDEFields& fields;
+};
+
 /** Implementation of post-processing actions for the VOF equation
  *  \ingroup vof
  */
