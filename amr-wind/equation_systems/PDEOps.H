@@ -173,6 +173,10 @@ template <typename PDE, typename Scheme, typename = void>
 struct DiffusionOp
 {};
 
+template <typename PDE, typename Scheme, typename = void>
+struct ConvDiffusionOp
+{};
+
 /** Turbulence update operator for scalar transport equations
  *  \ingroup pdeop
  */

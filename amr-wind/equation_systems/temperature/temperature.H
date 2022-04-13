@@ -31,6 +31,7 @@ namespace pde {
 struct Temperature : ScalarTransport
 {
     using MLDiffOp = amrex::MLABecLaplacian;
+    using MLConvDiffOp = amrex::MLABecCecLaplacian;
     using SrcTerm = TemperatureSource;
 
     static std::string pde_name() { return "Temperature"; }

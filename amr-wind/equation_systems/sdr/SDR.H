@@ -32,6 +32,7 @@ namespace pde {
 struct SDR : ScalarTransport
 {
     using MLDiffOp = amrex::MLABecLaplacian;
+    using MLConvDiffOp = amrex::MLABecCecLaplacian;
     using SrcTerm = SDRSource;
 
     static std::string pde_name() { return "SDR"; }

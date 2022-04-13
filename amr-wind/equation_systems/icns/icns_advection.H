@@ -101,7 +101,8 @@ struct AdvectionOp<ICNS, fvm::Godunov>
         iconserv.resize(ICNS::ndim, m_cons);
     }
 
-    void preadvect(const FieldState fstate, const amrex::Real dt)
+    void preadvect(
+        const FieldState fstate, const amrex::Real dt, const bool /*unused*/)
     {
 
         const auto& repo = fields.repo;
@@ -256,7 +257,8 @@ struct AdvectionOp<ICNS, fvm::Godunov>
         }
     }
 
-    void operator()(const FieldState fstate, const amrex::Real dt)
+    void operator()(
+        const FieldState fstate, const amrex::Real dt, const bool /*unused*/)
     {
         auto& repo = fields.repo;
         const auto& geom = repo.mesh().Geom();
@@ -365,17 +367,22 @@ struct AdvectionOp<ICNS, fvm::MOL>
         PDEFields& fields_in,
         bool has_overset,
         bool variable_density,
-        bool mesh_mapping)
+        bool mesh_mapping,
+        const std::string& prefix = "advection_icns")
         : fields(fields_in)
         , u_mac(fields_in.repo.get_field("u_mac"))
         , v_mac(fields_in.repo.get_field("v_mac"))
         , w_mac(fields_in.repo.get_field("w_mac"))
         , m_mesh_mapping(mesh_mapping)
+        , m_options(prefix, fields.field.name() + "_" + prefix)
         , m_macproj_op(
               fields.repo, has_overset, variable_density, m_mesh_mapping)
-    {}
+    {
+        mol_gradient_relax_factor = m_options.mol_gradient_relax_factor;
+    }
 
-    void preadvect(const FieldState fstate, const amrex::Real dt)
+    void preadvect(
+        const FieldState fstate, const amrex::Real dt, const bool /*unused*/)
     {
 
         // cppcheck-suppress constVariable
@@ -407,7 +414,10 @@ struct AdvectionOp<ICNS, fvm::MOL>
         m_macproj_op(fstate, dt);
     }
 
-    void operator()(const FieldState fstate, const amrex::Real /*unused*/)
+    void operator()(
+        const FieldState fstate,
+        const amrex::Real /*unused*/,
+        const bool explicit_convection)
     {
 
         const auto& repo = fields.repo;
@@ -451,7 +461,8 @@ struct AdvectionOp<ICNS, fvm::MOL>
                     dof_field(lev).const_array(mfi),
                     u_mac(lev).const_array(mfi), v_mac(lev).const_array(mfi),
                     w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
-                    dof_field.bcrec_device().data(), geom);
+                    dof_field.bcrec_device().data(), geom,
+                    mol_gradient_relax_factor, explicit_convection);
 
                 mol::compute_convective_rate(
                     bx, AMREX_SPACEDIM, conv_term(lev).array(mfi), fx, fy, fz,
@@ -466,6 +477,9 @@ struct AdvectionOp<ICNS, fvm::MOL>
     Field& w_mac;
 
     bool m_mesh_mapping;
+    amrex::Real mol_gradient_relax_factor;
+
+    MLMGOptions m_options;
 
     MacProjOp m_macproj_op;
 };

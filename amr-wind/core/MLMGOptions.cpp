@@ -54,6 +54,8 @@ void MLMGOptions::parse_options(const std::string& prefix)
     pp.query("hypre_interface", hypre_interface);
     pp.query("do_nsolve", do_nsolve);
     pp.query("nsolve_grid_size", nsolve_grid_size);
+
+    pp.query("mol_gradient_relax_factor", mol_gradient_relax_factor);
 }
 
 void MLMGOptions::operator()(amrex::MLMG& mlmg)

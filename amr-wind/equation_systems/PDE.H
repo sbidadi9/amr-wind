@@ -7,6 +7,7 @@
 #include "amr-wind/equation_systems/PDEOps.H"
 #include "amr-wind/equation_systems/CompRHSOps.H"
 #include "amr-wind/equation_systems/DiffusionOps.H"
+#include "amr-wind/equation_systems/DiffusionOpsIC.H"
 
 namespace amr_wind {
 namespace pde {
@@ -48,6 +49,7 @@ public:
         , m_fields(FieldRegOp<PDE, Scheme>(m_sim)(m_time, probtype))
         , m_src_op(m_fields)
         , m_rhs_op(m_fields)
+        , m_rhs_cdop(m_fields)
         , m_bc_op(m_fields, m_time)
         , m_post_solve_op(m_sim, m_fields)
     {
@@ -58,13 +60,20 @@ public:
     void initialize() override
     {
         if (PDE::has_diffusion) {
+
             BL_PROFILE("amr-wind::" + this->identifier() + "::initialize");
-            m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
-                m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));
+
+            if (m_sim.pde_manager().explicit_convection()) {
+                m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
+                    m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));
+            } else {
+                m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
+                    m_fields, m_sim.has_mesh_mapping()));
+            }
+
             m_turb_op.reset(
                 new TurbulenceOp<PDE>(m_sim.turbulence_model(), m_fields));
         }
-
         bool variable_density =
             (!m_sim.pde_manager().constant_density() ||
              m_sim.physics_manager().contains("MultiPhase"));
@@ -81,8 +90,14 @@ public:
         if (PDE::has_diffusion) {
             BL_PROFILE(
                 "amr-wind::" + this->identifier() + "::post_regrid_actions");
-            m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
-                m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));
+
+            if (m_sim.pde_manager().explicit_convection()) {
+                m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
+                    m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));
+            } else {
+                m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
+                    m_fields, m_sim.has_mesh_mapping()));
+            }
         }
 
         bool variable_density =
@@ -118,7 +133,12 @@ public:
             BL_PROFILE(
                 "amr-wind::" + this->identifier() + "::compute_diffusion_term");
             m_bc_op.apply_bcs(fstate);
-            m_diff_op->compute_diff_term(fstate);
+
+            if (m_sim.pde_manager().explicit_convection()) {
+                m_diff_op->compute_diff_term(fstate);
+            } else {
+                m_cdop->compute_diff_term(fstate);
+            }
         }
     }
 
@@ -126,30 +146,44 @@ public:
     {
         BL_PROFILE(
             "amr-wind::" + this->identifier() + "::compute_advection_term");
-        (*m_adv_op)(fstate, m_time.deltaT());
+        (*m_adv_op)(
+            fstate, m_time.deltaT(), m_sim.pde_manager().explicit_convection());
     }
 
     void pre_advection_actions(const FieldState fstate) override
     {
         BL_PROFILE(
             "amr-wind::" + this->identifier() + "::pre_advection_actions");
-        m_adv_op->preadvect(fstate, m_time.deltaT());
+        m_adv_op->preadvect(
+            fstate, m_time.deltaT(), m_sim.pde_manager().explicit_convection());
     }
 
     void compute_predictor_rhs(const DiffusionType difftype) override
     {
         BL_PROFILE(
             "amr-wind::" + this->identifier() + "::compute_predictor_rhs");
-        m_rhs_op.predictor_rhs(
-            difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+
+        if (m_sim.pde_manager().explicit_convection()) {
+            m_rhs_op.predictor_rhs(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        } else {
+            m_rhs_cdop.predictor_rhs(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        }
     }
 
     void compute_corrector_rhs(const DiffusionType difftype) override
     {
         BL_PROFILE(
             "amr-wind::" + this->identifier() + "::compute_corrector_rhs");
-        m_rhs_op.corrector_rhs(
-            difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+
+        if (m_sim.pde_manager().explicit_convection()) {
+            m_rhs_op.corrector_rhs(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        } else {
+            m_rhs_cdop.corrector_rhs(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        }
     }
 
     void solve(const amrex::Real dt) override
@@ -157,7 +191,12 @@ public:
         if (PDE::has_diffusion) {
             BL_PROFILE("amr-wind::" + this->identifier() + "::linsys_solve");
             m_bc_op.apply_bcs(FieldState::New);
-            m_diff_op->linsys_solve(dt);
+
+            if (m_sim.pde_manager().explicit_convection()) {
+                m_diff_op->linsys_solve(dt);
+            } else {
+                m_cdop->linsys_solve(dt);
+            }
         }
     }
 
@@ -184,8 +223,16 @@ protected:
     //! RHS computation operator
     ComputeRHSOp<PDE, Scheme> m_rhs_op;
 
+    //! *New* RHS computation operator for implicit treatment of convective
+    //! term
+    ComputeRHSOpIc<PDE, Scheme> m_rhs_cdop;
+
     //! Diffusion term computation operator
     std::unique_ptr<DiffusionOp<PDE, Scheme>> m_diff_op;
+
+    //! *New* Convection-Diffusion operator for implicit treatment of convective
+    //! term
+    std::unique_ptr<ConvDiffusionOp<PDE, Scheme>> m_cdop;
 
     //! Turbulence operator
     std::unique_ptr<TurbulenceOp<PDE>> m_turb_op;

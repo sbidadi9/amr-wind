@@ -38,12 +38,15 @@ void mol::compute_convective_fluxes(
     Array4<Real const> const& wmac,
     BCRec const* h_bcrec,
     BCRec const* d_bcrec,
-    Vector<Geometry> geom)
+    Vector<Geometry> geom,
+    amrex::Real gradient_relax_factor,
+    const bool explicit_convection)
 {
     BL_PROFILE("amr-wind::mol::compute_convective_fluxes");
     constexpr Real small_vel = 1.e-10;
 
     const Box& domain_box = geom[lev].Domain();
+
     const int domain_ilo = domain_box.smallEnd(0);
     const int domain_ihi = domain_box.bigEnd(0);
     const int domain_jlo = domain_box.smallEnd(1);
@@ -65,8 +68,9 @@ void mol::compute_convective_fluxes(
         (has_extdir_hi and domain_ihi <= xbx.bigEnd(0))) {
         amrex::ParallelFor(
             xbx, ncomp,
-            [d_bcrec, q, domain_ilo, domain_ihi, umac,
-             fx] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+            [d_bcrec, q, domain_ilo, domain_ihi, umac, fx,
+             gradient_relax_factor,
+             explicit_convection] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
                 bool extdir_or_ho_ilo = (d_bcrec[n].lo(0) == BCType::ext_dir) ||
                                         (d_bcrec[n].lo(0) == BCType::hoextrap);
                 bool extdir_or_ho_ihi = (d_bcrec[n].hi(0) == BCType::ext_dir) ||
@@ -79,16 +83,26 @@ void mol::compute_convective_fluxes(
                     (d_bcrec[n].hi(0) == BCType::ext_dir)) {
                     qs = q(domain_ihi + 1, j, k, n);
                 } else {
-                    Real qpls =
-                        q(i, j, k, n) -
-                        0.5 * incflo_xslope_extdir(
-                                  i, j, k, n, q, extdir_or_ho_ilo,
-                                  extdir_or_ho_ihi, domain_ilo, domain_ihi);
-                    Real qmns =
-                        q(i - 1, j, k, n) +
-                        0.5 * incflo_xslope_extdir(
-                                  i - 1, j, k, n, q, extdir_or_ho_ilo,
-                                  extdir_or_ho_ihi, domain_ilo, domain_ihi);
+                    Real qpls, qmns;
+
+                    if (!explicit_convection) {
+                        qpls = q(i, j, k, n);
+                        qmns = q(i - 1, j, k, n);
+                    } else {
+                        qpls = q(i, j, k, n) - 0.5 * gradient_relax_factor *
+                                                   incflo_xslope_extdir(
+                                                       i, j, k, n, q,
+                                                       extdir_or_ho_ilo,
+                                                       extdir_or_ho_ihi,
+                                                       domain_ilo, domain_ihi);
+                        qmns =
+                            q(i - 1, j, k, n) +
+                            0.5 * gradient_relax_factor *
+                                incflo_xslope_extdir(
+                                    i - 1, j, k, n, q, extdir_or_ho_ilo,
+                                    extdir_or_ho_ihi, domain_ilo, domain_ihi);
+                    }
+
                     if (umac(i, j, k) > small_vel) {
                         qs = qmns;
                     } else if (umac(i, j, k) < -small_vel) {
@@ -102,11 +116,15 @@ void mol::compute_convective_fluxes(
     } else {
         amrex::ParallelFor(
             xbx, ncomp,
-            [q, umac,
-             fx] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qpls = q(i, j, k, n) - 0.5 * incflo_xslope(i, j, k, n, q);
-                Real qmns =
-                    q(i - 1, j, k, n) + 0.5 * incflo_xslope(i - 1, j, k, n, q);
+            [q, umac, fx, gradient_relax_factor] AMREX_GPU_DEVICE(
+                int i, int j, int k, int n) noexcept {
+                Real qpls, qmns;
+
+                qpls = q(i, j, k, n) - 0.5 * gradient_relax_factor *
+                                           incflo_xslope(i, j, k, n, q);
+                qmns = q(i - 1, j, k, n) + 0.5 * gradient_relax_factor *
+                                               incflo_xslope(i - 1, j, k, n, q);
+
                 Real qs;
                 if (umac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -127,8 +145,9 @@ void mol::compute_convective_fluxes(
         (has_extdir_hi and domain_jhi <= ybx.bigEnd(1))) {
         amrex::ParallelFor(
             ybx, ncomp,
-            [d_bcrec, q, domain_jlo, domain_jhi, vmac,
-             fy] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+            [d_bcrec, q, domain_jlo, domain_jhi, vmac, fy,
+             gradient_relax_factor,
+             explicit_convection] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
                 bool extdir_or_ho_jlo = (d_bcrec[n].lo(1) == BCType::ext_dir) ||
                                         (d_bcrec[n].lo(1) == BCType::hoextrap);
                 bool extdir_or_ho_jhi = (d_bcrec[n].hi(1) == BCType::ext_dir) ||
@@ -141,16 +160,26 @@ void mol::compute_convective_fluxes(
                     (d_bcrec[n].hi(1) == BCType::ext_dir)) {
                     qs = q(i, domain_jhi + 1, k, n);
                 } else {
-                    Real qpls =
-                        q(i, j, k, n) -
-                        0.5 * incflo_yslope_extdir(
-                                  i, j, k, n, q, extdir_or_ho_jlo,
-                                  extdir_or_ho_jhi, domain_jlo, domain_jhi);
-                    Real qmns =
-                        q(i, j - 1, k, n) +
-                        0.5 * incflo_yslope_extdir(
-                                  i, j - 1, k, n, q, extdir_or_ho_jlo,
-                                  extdir_or_ho_jhi, domain_jlo, domain_jhi);
+                    Real qpls, qmns;
+
+                    if (!explicit_convection) {
+                        qpls = q(i, j, k, n);
+                        qmns = q(i, j - 1, k, n);
+                    } else {
+                        qpls = q(i, j, k, n) - 0.5 * gradient_relax_factor *
+                                                   incflo_yslope_extdir(
+                                                       i, j, k, n, q,
+                                                       extdir_or_ho_jlo,
+                                                       extdir_or_ho_jhi,
+                                                       domain_jlo, domain_jhi);
+                        qmns =
+                            q(i, j - 1, k, n) +
+                            0.5 * gradient_relax_factor *
+                                incflo_yslope_extdir(
+                                    i, j - 1, k, n, q, extdir_or_ho_jlo,
+                                    extdir_or_ho_jhi, domain_jlo, domain_jhi);
+                    }
+
                     if (vmac(i, j, k) > small_vel) {
                         qs = qmns;
                     } else if (vmac(i, j, k) < -small_vel) {
@@ -164,11 +193,15 @@ void mol::compute_convective_fluxes(
     } else {
         amrex::ParallelFor(
             ybx, ncomp,
-            [q, vmac,
-             fy] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qpls = q(i, j, k, n) - 0.5 * incflo_yslope(i, j, k, n, q);
-                Real qmns =
-                    q(i, j - 1, k, n) + 0.5 * incflo_yslope(i, j - 1, k, n, q);
+            [q, vmac, fy, gradient_relax_factor] AMREX_GPU_DEVICE(
+                int i, int j, int k, int n) noexcept {
+                Real qpls, qmns;
+
+                qpls = q(i, j, k, n) - 0.5 * gradient_relax_factor *
+                                           incflo_yslope(i, j, k, n, q);
+                qmns = q(i, j - 1, k, n) + 0.5 * gradient_relax_factor *
+                                               incflo_yslope(i, j - 1, k, n, q);
+
                 Real qs;
                 if (vmac(i, j, k) > small_vel) {
                     qs = qmns;
@@ -189,8 +222,9 @@ void mol::compute_convective_fluxes(
         (has_extdir_hi and domain_khi <= zbx.bigEnd(2))) {
         amrex::ParallelFor(
             zbx, ncomp,
-            [d_bcrec, q, domain_klo, domain_khi, wmac,
-             fz] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+            [d_bcrec, q, domain_klo, domain_khi, wmac, fz,
+             gradient_relax_factor,
+             explicit_convection] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
                 bool extdir_or_ho_klo = (d_bcrec[n].lo(2) == BCType::ext_dir) ||
                                         (d_bcrec[n].lo(2) == BCType::hoextrap);
                 bool extdir_or_ho_khi = (d_bcrec[n].hi(2) == BCType::ext_dir) ||
@@ -203,16 +237,26 @@ void mol::compute_convective_fluxes(
                     (d_bcrec[n].hi(2) == BCType::ext_dir)) {
                     qs = q(i, j, domain_khi + 1, n);
                 } else {
-                    Real qpls =
-                        q(i, j, k, n) -
-                        0.5 * incflo_zslope_extdir(
-                                  i, j, k, n, q, extdir_or_ho_klo,
-                                  extdir_or_ho_khi, domain_klo, domain_khi);
-                    Real qmns =
-                        q(i, j, k - 1, n) +
-                        0.5 * incflo_zslope_extdir(
-                                  i, j, k - 1, n, q, extdir_or_ho_klo,
-                                  extdir_or_ho_khi, domain_klo, domain_khi);
+                    Real qpls, qmns;
+
+                    if (!explicit_convection) {
+                        qpls = q(i, j, k, n);
+                        qmns = q(i, j, k - 1, n);
+                    } else {
+                        qpls = q(i, j, k, n) - 0.5 * gradient_relax_factor *
+                                                   incflo_zslope_extdir(
+                                                       i, j, k, n, q,
+                                                       extdir_or_ho_klo,
+                                                       extdir_or_ho_khi,
+                                                       domain_klo, domain_khi);
+                        qmns =
+                            q(i, j, k - 1, n) +
+                            0.5 * gradient_relax_factor *
+                                incflo_zslope_extdir(
+                                    i, j, k - 1, n, q, extdir_or_ho_klo,
+                                    extdir_or_ho_khi, domain_klo, domain_khi);
+                    }
+
                     if (wmac(i, j, k) > small_vel) {
                         qs = qmns;
                     } else if (wmac(i, j, k) < -small_vel) {
@@ -226,11 +270,15 @@ void mol::compute_convective_fluxes(
     } else {
         amrex::ParallelFor(
             zbx, ncomp,
-            [q, wmac,
-             fz] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                Real qpls = q(i, j, k, n) - 0.5 * incflo_zslope(i, j, k, n, q);
-                Real qmns =
-                    q(i, j, k - 1, n) + 0.5 * incflo_zslope(i, j, k - 1, n, q);
+            [q, wmac, fz, gradient_relax_factor] AMREX_GPU_DEVICE(
+                int i, int j, int k, int n) noexcept {
+                Real qpls, qmns;
+
+                qpls = q(i, j, k, n) - 0.5 * gradient_relax_factor *
+                                           incflo_zslope(i, j, k, n, q);
+                qmns = q(i, j, k - 1, n) + 0.5 * gradient_relax_factor *
+                                               incflo_zslope(i, j, k - 1, n, q);
+
                 Real qs;
                 if (wmac(i, j, k) > small_vel) {
                     qs = qmns;

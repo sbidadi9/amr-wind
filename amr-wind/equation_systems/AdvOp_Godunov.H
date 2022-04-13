@@ -67,9 +67,14 @@ struct AdvectionOp<
         iconserv.resize(PDE::ndim, 1);
     }
 
-    void preadvect(const FieldState /*unused*/, const amrex::Real /*unused*/) {}
+    void preadvect(
+        const FieldState /*unused*/,
+        const amrex::Real /*unused*/,
+        const bool /*unused*/)
+    {}
 
-    void operator()(const FieldState fstate, const amrex::Real dt)
+    void operator()(
+        const FieldState fstate, const amrex::Real dt, const bool /*unused*/)
     {
         static_assert(
             PDE::ndim == 1, "Invalid number of components for scalar");

@@ -46,11 +46,21 @@ void incflo::ReadParameters()
                 "Crank-Nicolson or 2 for implicit");
         }
 
-        if (!m_use_godunov && m_time.max_cfl() > 0.5) {
+        // Convection type
+        pp.query("use_explicit_convection", m_explicit_convection);
+
+        if (m_use_godunov && !m_explicit_convection) {
+            amrex::Abort(
+                "Implicit time stepping method is not supported for Godunov "
+                "advection scheme");
+        }
+
+        if (!m_use_godunov && m_time.max_cfl() > 0.5 && m_explicit_convection) {
             amrex::Abort(
                 "We currently require cfl <= 0.5 when using the MOL advection "
-                "scheme");
+                "scheme with explicit convection");
         }
+
         if (m_use_godunov && m_time.max_cfl() > 1.0) {
             amrex::Abort(
                 "We currently require cfl <= 1.0 when using the Godunov "

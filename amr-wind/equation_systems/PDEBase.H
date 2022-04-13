@@ -151,6 +151,8 @@ public:
 
     bool constant_density() const { return m_constant_density; }
 
+    bool explicit_convection() const { return m_explicit_convection; }
+
 private:
     //! Instance of the CFD simulation controller
     CFDSim& m_sim;
@@ -169,6 +171,8 @@ private:
 
     //! Flag indicating whether density is constant for this simulation
     bool m_constant_density{true};
+
+    bool m_explicit_convection{true};
 };
 
 } // namespace pde

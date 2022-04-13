@@ -177,6 +177,9 @@ private:
 
     DiffusionType m_diff_type = DiffusionType::Implicit;
 
+    // Explicit convection
+    bool m_explicit_convection = true;
+
     //
     // end of member variables
     //

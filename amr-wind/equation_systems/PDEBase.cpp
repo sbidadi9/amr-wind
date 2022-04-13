@@ -25,6 +25,7 @@ PDEMgr::PDEMgr(CFDSim& sim) : m_sim(sim), m_probtype(0)
     pp.query("probtype", m_probtype);
     pp.query("use_godunov", m_use_godunov);
     pp.query("constant_density", m_constant_density);
+    pp.query("use_explicit_convection", m_explicit_convection);
 
     m_scheme =
         m_use_godunov ? fvm::Godunov::scheme_name() : fvm::MOL::scheme_name();

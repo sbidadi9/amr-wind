@@ -8,6 +8,8 @@
 #include "amr-wind/equation_systems/PDETraits.H"
 #include "amr-wind/equation_systems/PDEOps.H"
 
+#include "amr-wind/core/MLMGOptions.H"
+
 #include "AMReX_Gpu.H"
 #include "AMReX_ParmParse.H"
 
@@ -28,17 +30,28 @@ struct AdvectionOp<
         PDEFields& fields_in,
         bool /* has_overset */,
         bool /* variable density */,
-        bool /* mesh mapping */)
+        bool /* mesh mapping */,
+        const std::string& prefix = "advection_scalar")
         : fields(fields_in)
         , density(fields_in.repo.get_field("density"))
         , u_mac(fields_in.repo.get_field("u_mac"))
         , v_mac(fields_in.repo.get_field("v_mac"))
         , w_mac(fields_in.repo.get_field("w_mac"))
+        , m_options(prefix, fields.field.name() + "_" + prefix)
+    {
+        mol_gradient_relax_factor = m_options.mol_gradient_relax_factor;
+    }
+
+    void preadvect(
+        const FieldState /*unused*/,
+        const amrex::Real /*unused*/,
+        const bool /*unused*/)
     {}
 
-    void preadvect(const FieldState /*unused*/, const amrex::Real /*unused*/) {}
-
-    void operator()(const FieldState fstate, const amrex::Real /*unused*/)
+    void operator()(
+        const FieldState fstate,
+        const amrex::Real /*unused*/,
+        const bool explicit_convection)
     {
         static_assert(
             PDE::ndim == 1, "Invalid number of components for scalar");
@@ -108,7 +121,8 @@ struct AdvectionOp<
                         u_mac(lev).const_array(mfi),
                         v_mac(lev).const_array(mfi),
                         w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
-                        dof_field.bcrec_device().data(), geom);
+                        dof_field.bcrec_device().data(), geom,
+                        mol_gradient_relax_factor, explicit_convection);
 
                     mol::compute_convective_rate(
                         bx, PDE::ndim, conv_term(lev).array(mfi), fx, fy, fz,
@@ -123,6 +137,10 @@ struct AdvectionOp<
     Field& u_mac;
     Field& v_mac;
     Field& w_mac;
+
+    MLMGOptions m_options;
+
+    amrex::Real mol_gradient_relax_factor;
 };
 
 } // namespace pde

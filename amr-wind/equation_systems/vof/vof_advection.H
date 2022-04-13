@@ -26,9 +26,16 @@ struct AdvectionOp<VOF, fvm::Godunov>
         pp_multiphase.query("remove_debris", m_rm_debris);
     }
 
-    void preadvect(const FieldState /*unused*/, const amrex::Real /*unused*/) {}
+    void preadvect(
+        const FieldState /*unused*/,
+        const amrex::Real /*unused*/,
+        const bool /*unused*/)
+    {}
 
-    void operator()(const FieldState /*unused*/, const amrex::Real dt)
+    void operator()(
+        const FieldState /*unused*/,
+        const amrex::Real dt,
+        const bool /*unused*/)
     {
         static_assert(
             VOF::ndim == 1, "Invalid number of components for scalar");

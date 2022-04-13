@@ -36,7 +36,9 @@ void compute_convective_fluxes(
     amrex::Array4<amrex::Real const> const& wmac,
     amrex::BCRec const* h_bcrec,
     amrex::BCRec const* d_bcrec,
-    amrex::Vector<amrex::Geometry> geom);
+    amrex::Vector<amrex::Geometry> geom,
+    amrex::Real mol_gradient_relax_factor,
+    const bool explicit_convection);
 
 void compute_convective_rate(
     amrex::Box const& bx,
