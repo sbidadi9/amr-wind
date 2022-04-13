@@ -370,7 +370,10 @@ struct AdvectionOp<ICNS, fvm::MOL>
         , m_mesh_mapping(mesh_mapping)
         , m_macproj_op(
               fields.repo, has_overset, variable_density, m_mesh_mapping)
-    {}
+    {
+        amrex::ParmParse pp("incflo");
+        pp.query("scheme_order", scheme_order);
+    }
 
     void preadvect(const FieldState fstate, const amrex::Real dt)
     {
@@ -448,7 +451,7 @@ struct AdvectionOp<ICNS, fvm::MOL>
                     dof_field(lev).const_array(mfi),
                     u_mac(lev).const_array(mfi), v_mac(lev).const_array(mfi),
                     w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
-                    dof_field.bcrec_device().data(), geom);
+                    dof_field.bcrec_device().data(), geom, scheme_order);
 
                 mol::compute_convective_rate(
                     bx, AMREX_SPACEDIM, conv_term(lev).array(mfi), fx, fy, fz,
@@ -463,6 +466,7 @@ struct AdvectionOp<ICNS, fvm::MOL>
     Field& w_mac;
 
     bool m_mesh_mapping;
+    int scheme_order;
 
     MacProjOp m_macproj_op;
 };

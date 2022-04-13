@@ -7,6 +7,9 @@
 #include "amr-wind/equation_systems/AdvOp_Godunov.H"
 #include "amr-wind/equation_systems/AdvOp_MOL.H"
 #include "amr-wind/equation_systems/DiffusionOps.H"
+
+#include "amr-wind/equation_systems/DiffusionOpsIC.H"
+
 #include "amr-wind/equation_systems/icns/icns.H"
 #include "AMReX_MultiFabUtil.H"
 

@@ -57,6 +57,9 @@ void incflo::ReadParameters()
                 "advection scheme");
         }
 
+        // Convection type
+        pp.query("use_explicit_convection", m_explicit_convection);
+
         // probtype only kept around for probtype=31 otherwise default=0 works
         // for all other physics
         pp.query("probtype", m_probtype);

@@ -1,6 +1,7 @@
 target_sources(${amr_wind_lib_name} PRIVATE
   PDEBase.cpp
   DiffusionOps.cpp
+  DiffusionOpsIC.cpp
   )
 
 add_subdirectory(icns)

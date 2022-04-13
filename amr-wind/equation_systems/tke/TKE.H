@@ -33,6 +33,7 @@ namespace pde {
 struct TKE : ScalarTransport
 {
     using MLDiffOp = amrex::MLABecLaplacian;
+    using MLConvDiffOp = amrex::MLABecCecLaplacian;
     using SrcTerm = TKESource;
 
     static std::string pde_name() { return "TKE"; }
