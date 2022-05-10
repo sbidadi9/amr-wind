@@ -131,243 +131,6 @@ public:
     }
 };
 
-//! Class for treating ICNS (scalar) convective term implicitly
-class ICNSConvDiffScalarOp
-{
-public:
-    ICNSConvDiffScalarOp(
-        PDEFields& fields,
-        const bool mesh_mapping,
-        const std::string& prefix = "diffusion")
-        : m_pdefields(fields)
-        , m_density(fields.repo.get_field("density"))
-        , m_options(prefix, m_pdefields.field.name() + "_" + prefix)
-        , m_mesh_mapping(mesh_mapping)
-    {
-        amrex::LPInfo isolve = m_options.lpinfo();
-        amrex::LPInfo iapply;
-
-        amrex::Real omega = 0.99;
-
-        iapply.setMaxCoarseningLevel(0);
-        isolve.setMaxCoarseningLevel(0);
-
-        const auto& mesh = m_pdefields.repo.mesh();
-
-        const auto& bclo = diffusion::get_diffuse_tensor_bc(
-            m_pdefields.field, amrex::Orientation::low);
-        const auto& bchi = diffusion::get_diffuse_tensor_bc(
-            m_pdefields.field, amrex::Orientation::high);
-
-        const int ncomp = m_pdefields.field.num_comp();
-
-        m_solver_scalar.reset(new amrex::MLABecCecLaplacian(
-            mesh.Geom(0, mesh.finestLevel()),
-            mesh.boxArray(0, mesh.finestLevel()),
-            mesh.DistributionMap(0, mesh.finestLevel()), isolve, {}, ncomp));
-        m_applier_scalar.reset(new amrex::MLABecCecLaplacian(
-            mesh.Geom(0, mesh.finestLevel()),
-            mesh.boxArray(0, mesh.finestLevel()),
-            mesh.DistributionMap(0, mesh.finestLevel()), iapply, {}, ncomp));
-
-        m_solver_scalar->setMaxOrder(m_options.max_order);
-        m_applier_scalar->setMaxOrder(m_options.max_order);
-
-        m_solver_scalar->setDomainBC(bclo, bchi);
-        m_applier_scalar->setDomainBC(bclo, bchi);
-
-        m_solver_scalar->setRelaxation(omega);
-        m_applier_scalar->setRelaxation(omega);
-    }
-
-    template <typename Scheme>
-    void compute_diff_term_cd(const FieldState fstate)
-    {
-        auto tau_state = std::is_same<Scheme, fvm::Godunov>::value
-                             ? FieldState::New
-                             : fstate;
-        const auto& repo = m_pdefields.repo;
-        const int nlevels = repo.num_active_levels();
-        const auto& geom = repo.mesh().Geom();
-
-        auto& divtau = m_pdefields.diff_term.state(tau_state);
-        const auto& density = m_density.state(fstate);
-        const auto& viscosity = m_pdefields.mueff;
-
-        amrex::Array<amrex::MultiFab const*, AMREX_SPACEDIM> mac_vec;
-
-        auto& umac = repo.get_field("u_mac");
-        auto& vmac = repo.get_field("v_mac");
-        auto& wmac = repo.get_field("w_mac");
-
-        Field const* mesh_detJ =
-            m_mesh_mapping ? &(repo.get_mesh_mapping_detJ(FieldLoc::CELL))
-                           : nullptr;
-        std::unique_ptr<ScratchField> rho_times_detJ =
-            m_mesh_mapping ? repo.create_scratch_field(
-                                 1, m_density.num_grow()[0], FieldLoc::CELL)
-                           : nullptr;
-
-        const amrex::Real alpha = 0.0;
-        const amrex::Real beta = -1.0;
-        const amrex::Real gamma = 0.0;
-
-        m_applier_scalar->setScalars(alpha, beta, gamma);
-
-        for (int lev = 0; lev < nlevels; ++lev) {
-            m_applier_scalar->setLevelBC(lev, &m_pdefields.field(lev));
-
-            // A coeffs
-            if (m_mesh_mapping) {
-                (*rho_times_detJ)(lev).setVal(0.0);
-                amrex::MultiFab::AddProduct(
-                    (*rho_times_detJ)(lev), density(lev), 0, (*mesh_detJ)(lev),
-                    0, 0, 1, m_density.num_grow()[0]);
-                m_applier_scalar->setACoeffs(lev, (*rho_times_detJ)(lev));
-            } else {
-                m_applier_scalar->setACoeffs(lev, density(lev));
-            }
-
-            // B coeffs
-            auto b = diffusion::average_velocity_eta_to_faces(
-                geom[lev], viscosity(lev));
-            if (m_mesh_mapping) {
-                diffusion::viscosity_to_uniform_space(b, repo, lev);
-            }
-            m_applier_scalar->setBCoeffs(lev, amrex::GetArrOfConstPtrs(b));
-
-            // C coeffs
-            mac_vec[0] = &umac(lev);
-            mac_vec[1] = &vmac(lev);
-            mac_vec[2] = &wmac(lev);
-            m_solver_scalar->setCCoeffs(lev, amrex::GetArrOfConstPtrs(mac_vec));
-        }
-
-        amrex::MLMG mlmg(*m_applier_scalar);
-        mlmg.apply(divtau.vec_ptrs(), m_pdefields.field.vec_ptrs());
-
-        for (int lev = 0; lev < nlevels; ++lev) {
-#ifdef _OPENMP
-#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
-#endif
-            for (amrex::MFIter mfi(divtau(lev), amrex::TilingIfNotGPU());
-                 mfi.isValid(); ++mfi) {
-                const auto& bx = mfi.tilebox();
-                const auto& divtau_arr = divtau(lev).array(mfi);
-                const auto& rho_arr = density(lev).const_array(mfi);
-
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                        amrex::Real rhoinv = 1.0 / rho_arr(i, j, k);
-                        divtau_arr(i, j, k, 0) *= rhoinv;
-                        divtau_arr(i, j, k, 1) *= rhoinv;
-                        divtau_arr(i, j, k, 2) *= rhoinv;
-                    });
-            }
-        }
-    }
-
-    void linsys_solve_cd(const amrex::Real dt)
-    {
-        const FieldState fstate = FieldState::New;
-        auto& repo = m_pdefields.repo;
-        const auto& geom = repo.mesh().Geom();
-        auto& field = m_pdefields.field;
-        const auto& density = m_density.state(fstate);
-        const int nlevels = repo.num_active_levels();
-        const int ndim = field.num_comp();
-        auto rhs_ptr = repo.create_scratch_field("rhs", field.num_comp(), 0);
-        const auto& viscosity = m_pdefields.mueff;
-
-        amrex::Array<amrex::MultiFab const*, AMREX_SPACEDIM> mac_vec;
-
-        auto& umac = repo.get_field("u_mac");
-        auto& vmac = repo.get_field("v_mac");
-        auto& wmac = repo.get_field("w_mac");
-
-        Field const* mesh_detJ =
-            m_mesh_mapping ? &(repo.get_mesh_mapping_detJ(FieldLoc::CELL))
-                           : nullptr;
-        std::unique_ptr<ScratchField> rho_times_detJ =
-            m_mesh_mapping ? repo.create_scratch_field(
-                                 1, m_density.num_grow()[0], FieldLoc::CELL)
-                           : nullptr;
-
-        const amrex::Real alpha = 1.0;
-        const amrex::Real beta = dt;
-        const amrex::Real gamma = -dt;
-        m_solver_scalar->setScalars(alpha, beta, gamma);
-
-        for (int lev = 0; lev < nlevels; ++lev) {
-            m_solver_scalar->setLevelBC(lev, &m_pdefields.field(lev));
-
-            // A coeffs
-            if (m_mesh_mapping) {
-                (*rho_times_detJ)(lev).setVal(0.0);
-                amrex::MultiFab::AddProduct(
-                    (*rho_times_detJ)(lev), density(lev), 0, (*mesh_detJ)(lev),
-                    0, 0, 1, m_density.num_grow()[0]);
-                m_solver_scalar->setACoeffs(lev, (*rho_times_detJ)(lev));
-            } else {
-                m_solver_scalar->setACoeffs(lev, density(lev));
-            }
-
-            // B coeffs
-            auto b = diffusion::average_velocity_eta_to_faces(
-                geom[lev], viscosity(lev));
-            if (m_mesh_mapping) {
-                diffusion::viscosity_to_uniform_space(b, repo, lev);
-            }
-            m_solver_scalar->setBCoeffs(lev, amrex::GetArrOfConstPtrs(b));
-
-            // C coeffs
-            mac_vec[0] = &umac(lev);
-            mac_vec[1] = &vmac(lev);
-            mac_vec[2] = &wmac(lev);
-            m_solver_scalar->setCCoeffs(lev, amrex::GetArrOfConstPtrs(mac_vec));
-        }
-
-        // Always multiply with rho since there is no diffusion term for density
-        for (int lev = 0; lev < nlevels; ++lev) {
-            auto& rhs = (*rhs_ptr)(lev);
-
-#ifdef _OPENMP
-#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
-#endif
-            for (amrex::MFIter mfi(rhs, amrex::TilingIfNotGPU()); mfi.isValid();
-                 ++mfi) {
-                const auto& bx = mfi.tilebox();
-                const auto& rhs_a = rhs.array(mfi);
-                const auto& fld = field(lev).const_array(mfi);
-                const auto& rho = density(lev).const_array(mfi);
-
-                amrex::ParallelFor(
-                    bx, ndim,
-                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
-                        rhs_a(i, j, k, n) = rho(i, j, k) * fld(i, j, k, n);
-                    });
-            }
-        }
-
-        amrex::MLMG mlmg(*m_solver_scalar);
-        m_options(mlmg);
-        mlmg.solve(
-            m_pdefields.field.vec_ptrs(), rhs_ptr->vec_const_ptrs(),
-            m_options.rel_tol, m_options.abs_tol);
-
-        io::print_mlmg_info(field.name() + "_multicomponent_solve", mlmg);
-    }
-
-protected:
-    PDEFields& m_pdefields;
-    Field& m_density;
-    MLMGOptions m_options;
-    bool m_mesh_mapping{false};
-
-    std::unique_ptr<amrex::MLABecCecLaplacian> m_solver_scalar;
-    std::unique_ptr<amrex::MLABecCecLaplacian> m_applier_scalar;
-};
-
 class ICNSDiffScalarOp
 {
 public:
@@ -836,6 +599,276 @@ protected:
         m_applier_scalar;
 };
 
+//! Class for treating ICNS (scalar) convective term implicitly
+class ICNSConvDiffScalarOp
+{
+public:
+    ICNSConvDiffScalarOp(
+        PDEFields& fields,
+        const bool mesh_mapping,
+        const std::string& prefix = "diffusion")
+        : m_pdefields(fields)
+        , m_density(fields.repo.get_field("density"))
+        , m_options(prefix, m_pdefields.field.name() + "_" + prefix)
+        , m_mesh_mapping(mesh_mapping)
+    {
+        amrex::LPInfo isolve = m_options.lpinfo();
+        amrex::LPInfo iapply;
+
+        amrex::Real omega = 0.99;
+
+        iapply.setMaxCoarseningLevel(0);
+        isolve.setMaxCoarseningLevel(0);
+
+        const auto& mesh = m_pdefields.repo.mesh();
+
+        const auto& bclo = diffusion::get_diffuse_tensor_bc(
+            m_pdefields.field, amrex::Orientation::low);
+        const auto& bchi = diffusion::get_diffuse_tensor_bc(
+            m_pdefields.field, amrex::Orientation::high);
+
+        for (int i = 0; i < AMREX_SPACEDIM; ++i) {
+
+            m_solver_scalar[i].reset(new amrex::MLABecCecLaplacian(
+                mesh.Geom(0, mesh.finestLevel()),
+                mesh.boxArray(0, mesh.finestLevel()),
+                mesh.DistributionMap(0, mesh.finestLevel()), isolve));
+            m_applier_scalar[i].reset(new amrex::MLABecCecLaplacian(
+                mesh.Geom(0, mesh.finestLevel()),
+                mesh.boxArray(0, mesh.finestLevel()),
+                mesh.DistributionMap(0, mesh.finestLevel()), iapply));
+
+            m_solver_scalar[i]->setMaxOrder(m_options.max_order);
+            m_applier_scalar[i]->setMaxOrder(m_options.max_order);
+
+            m_solver_scalar[i]->setDomainBC(bclo[i], bchi[i]);
+            m_applier_scalar[i]->setDomainBC(bclo[i], bchi[i]);
+
+            m_solver_scalar[i]->setRelaxation(omega);
+            m_applier_scalar[i]->setRelaxation(omega);
+        }
+    }
+
+    template <typename Scheme>
+    void compute_diff_term_cd(const FieldState fstate)
+    {
+        auto tau_state = std::is_same<Scheme, fvm::Godunov>::value
+                             ? FieldState::New
+                             : fstate;
+        const auto& repo = m_pdefields.repo;
+        const int nlevels = repo.num_active_levels();
+        const auto& geom = repo.mesh().Geom();
+
+        auto& divtau = m_pdefields.diff_term.state(tau_state);
+        const auto& density = m_density.state(fstate);
+        const auto& viscosity = m_pdefields.mueff;
+
+        amrex::Array<amrex::MultiFab const*, AMREX_SPACEDIM> mac_vec;
+
+        auto& umac = repo.get_field("u_mac");
+        auto& vmac = repo.get_field("v_mac");
+        auto& wmac = repo.get_field("w_mac");
+
+        Field const* mesh_detJ =
+            m_mesh_mapping ? &(repo.get_mesh_mapping_detJ(FieldLoc::CELL))
+                           : nullptr;
+        std::unique_ptr<ScratchField> rho_times_detJ =
+            m_mesh_mapping ? repo.create_scratch_field(
+                                 1, m_density.num_grow()[0], FieldLoc::CELL)
+                           : nullptr;
+
+        const amrex::Real alpha = 0.0;
+        const amrex::Real beta = -1.0;
+        const amrex::Real gamma = 0.0;
+
+        for (int lev = 0; lev < nlevels; ++lev) {
+            if (m_mesh_mapping) {
+                (*rho_times_detJ)(lev).setVal(0.0);
+                amrex::MultiFab::AddProduct(
+                    (*rho_times_detJ)(lev), density(lev), 0, (*mesh_detJ)(lev),
+                    0, 0, 1, m_density.num_grow()[0]);
+            }
+            auto b = diffusion::average_velocity_eta_to_faces(
+                geom[lev], viscosity(lev));
+            if (m_mesh_mapping) {
+                diffusion::viscosity_to_uniform_space(b, repo, lev);
+            }
+
+            for (int i = 0; i < AMREX_SPACEDIM; ++i) {
+                m_applier_scalar[i]->setScalars(alpha, beta, gamma);
+
+                m_applier_scalar[i]->setLevelBC(
+                    lev, &m_pdefields.field.subview(i)(lev));
+
+                // A coeffs
+                if (m_mesh_mapping) {
+                    m_applier_scalar[i]->setACoeffs(
+                        lev, (*rho_times_detJ)(lev));
+                } else {
+                    m_applier_scalar[i]->setACoeffs(lev, density(lev));
+                }
+
+                // B coeffs
+                m_applier_scalar[i]->setBCoeffs(
+                    lev, amrex::GetArrOfConstPtrs(b));
+
+                // C coeffs
+                mac_vec[0] = &umac(lev);
+                mac_vec[1] = &vmac(lev);
+                mac_vec[2] = &wmac(lev);
+                m_applier_scalar[i]->setCCoeffs(
+                    lev, amrex::GetArrOfConstPtrs(mac_vec));
+
+                auto divtau_comp = divtau.subview(i);
+                auto vel_comp = m_pdefields.field.subview(i);
+
+                amrex::MLMG mlmg(*m_applier_scalar[i]);
+                mlmg.apply(divtau_comp.vec_ptrs(), vel_comp.vec_ptrs());
+            }
+        }
+
+        for (int lev = 0; lev < nlevels; ++lev) {
+#ifdef _OPENMP
+#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
+#endif
+            for (amrex::MFIter mfi(divtau(lev), amrex::TilingIfNotGPU());
+                 mfi.isValid(); ++mfi) {
+                const auto& bx = mfi.tilebox();
+                const auto& divtau_arr = divtau(lev).array(mfi);
+                const auto& rho_arr = density(lev).const_array(mfi);
+
+                amrex::ParallelFor(
+                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
+                        amrex::Real rhoinv = 1.0 / rho_arr(i, j, k);
+                        divtau_arr(i, j, k, 0) *= rhoinv;
+                        divtau_arr(i, j, k, 1) *= rhoinv;
+                        divtau_arr(i, j, k, 2) *= rhoinv;
+                    });
+            }
+        }
+    }
+
+    void linsys_solve_cd(const amrex::Real dt)
+    {
+        const FieldState fstate = FieldState::New;
+        auto& repo = m_pdefields.repo;
+        auto& field = m_pdefields.field;
+        const auto& density = m_density.state(fstate);
+        const int nlevels = repo.num_active_levels();
+        const int ndim = field.num_comp();
+        auto rhs_ptr = repo.create_scratch_field("rhs", field.num_comp(), 0);
+        const auto& viscosity = m_pdefields.mueff;
+        const auto& geom = repo.mesh().Geom();
+
+        amrex::Array<amrex::MultiFab const*, AMREX_SPACEDIM> mac_vec;
+
+        auto& umac = repo.get_field("u_mac");
+        auto& vmac = repo.get_field("v_mac");
+        auto& wmac = repo.get_field("w_mac");
+
+        Field const* mesh_detJ =
+            m_mesh_mapping ? &(repo.get_mesh_mapping_detJ(FieldLoc::CELL))
+                           : nullptr;
+        std::unique_ptr<ScratchField> rho_times_detJ =
+            m_mesh_mapping ? repo.create_scratch_field(
+                                 1, m_density.num_grow()[0], FieldLoc::CELL)
+                           : nullptr;
+
+        const amrex::Real alpha = 1.0;
+        const amrex::Real beta = dt;
+        const amrex::Real gamma = -dt;
+
+        for (int lev = 0; lev < nlevels; ++lev) {
+
+            if (m_mesh_mapping) {
+                (*rho_times_detJ)(lev).setVal(0.0);
+                amrex::MultiFab::AddProduct(
+                    (*rho_times_detJ)(lev), density(lev), 0, (*mesh_detJ)(lev),
+                    0, 0, 1, m_density.num_grow()[0]);
+            }
+
+            auto b = diffusion::average_velocity_eta_to_faces(
+                geom[lev], viscosity(lev));
+            if (m_mesh_mapping) {
+                diffusion::viscosity_to_uniform_space(b, repo, lev);
+            }
+
+            for (int i = 0; i < AMREX_SPACEDIM; ++i) {
+                m_solver_scalar[i]->setScalars(alpha, beta, gamma);
+
+                m_solver_scalar[i]->setLevelBC(
+                    lev, &m_pdefields.field.subview(i)(lev));
+
+                // A coeffs
+                if (m_mesh_mapping) {
+                    m_solver_scalar[i]->setACoeffs(lev, (*rho_times_detJ)(lev));
+                } else {
+                    m_solver_scalar[i]->setACoeffs(lev, density(lev));
+                }
+
+                // B coeffs
+                m_solver_scalar[i]->setBCoeffs(
+                    lev, amrex::GetArrOfConstPtrs(b));
+
+                // C coeffs
+                mac_vec[0] = &umac(lev);
+                mac_vec[1] = &vmac(lev);
+                mac_vec[2] = &wmac(lev);
+                m_solver_scalar[i]->setCCoeffs(
+                    lev, amrex::GetArrOfConstPtrs(mac_vec));
+            }
+        }
+
+        // Always multiply with rho since there is no diffusion term for density
+        for (int lev = 0; lev < nlevels; ++lev) {
+            auto& rhs = (*rhs_ptr)(lev);
+
+#ifdef _OPENMP
+#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
+#endif
+            for (amrex::MFIter mfi(rhs, amrex::TilingIfNotGPU()); mfi.isValid();
+                 ++mfi) {
+                const auto& bx = mfi.tilebox();
+                const auto& rhs_a = rhs.array(mfi);
+                const auto& fld = field(lev).const_array(mfi);
+                const auto& rho = density(lev).const_array(mfi);
+
+                amrex::ParallelFor(
+                    bx, ndim,
+                    [=] AMREX_GPU_DEVICE(int i, int j, int k, int n) noexcept {
+                        rhs_a(i, j, k, n) = rho(i, j, k) * fld(i, j, k, n);
+                    });
+            }
+        }
+
+        for (int i = 0; i < AMREX_SPACEDIM; ++i) {
+            auto vel_comp = m_pdefields.field.subview(i);
+            auto rhs_ptr_comp = rhs_ptr->subview(i);
+
+            amrex::MLMG mlmg(*m_solver_scalar[i]);
+            m_options(mlmg);
+
+            mlmg.solve(
+                vel_comp.vec_ptrs(), rhs_ptr_comp.vec_const_ptrs(),
+                m_options.rel_tol, m_options.abs_tol);
+
+            io::print_mlmg_info(
+                field.name() + std::to_string(i) + "_solve", mlmg);
+        }
+    }
+
+protected:
+    PDEFields& m_pdefields;
+    Field& m_density;
+    MLMGOptions m_options;
+    bool m_mesh_mapping{false};
+
+    amrex::Array<std::unique_ptr<amrex::MLABecCecLaplacian>, AMREX_SPACEDIM>
+        m_solver_scalar;
+    amrex::Array<std::unique_ptr<amrex::MLABecCecLaplacian>, AMREX_SPACEDIM>
+        m_applier_scalar;
+};
+
 /** Specialization of diffusion operator for ICNS
  *  \ingroup icns
  */
@@ -909,51 +942,31 @@ struct DiffusionOp<ICNS, Scheme>
     }
 };
 
-/** Specialization of convection-diffusion operator for ICNS
+/** Specialization of convection-diffusion segregated operator for ICNS
  *  \ingroup icns
  */
 template <typename Scheme>
 struct ConvDiffusionOp<ICNS, Scheme>
 {
-    std::unique_ptr<ICNSConvDiffTensorOp> m_tensor_op_cd;
-    std::unique_ptr<ICNSConvDiffScalarOp> m_scalar_op_cd;
-
+    std::unique_ptr<ICNSConvDiffScalarOp> m_scalar_op;
     static_assert(
         ICNS::ndim == AMREX_SPACEDIM,
         "ConvDiffusionOp invoked for scalar PDE type");
 
     ConvDiffusionOp(PDEFields& fields, const bool mesh_mapping)
     {
-
-        bool use_tensor_op = true;
-        amrex::ParmParse pp(fields.field.name() + "_diffusion");
-        pp.query("use_tensor_operator", use_tensor_op);
-
-        if (use_tensor_op) {
-            m_tensor_op_cd =
-                std::make_unique<ICNSConvDiffTensorOp>(fields, mesh_mapping);
-        } else {
-            m_scalar_op_cd =
-                std::make_unique<ICNSConvDiffScalarOp>(fields, mesh_mapping);
-        }
+        m_scalar_op =
+            std::make_unique<ICNSConvDiffScalarOp>(fields, mesh_mapping);
     }
 
     void compute_diff_term_cd(const FieldState fstate)
     {
-        if (m_tensor_op_cd) {
-            m_tensor_op_cd->compute_diff_term_cd<Scheme>(fstate);
-        } else {
-            m_scalar_op_cd->compute_diff_term_cd<Scheme>(fstate);
-        }
+        m_scalar_op->compute_diff_term_cd<Scheme>(fstate);
     }
 
     void linsys_solve_cd(const amrex::Real dt)
     {
-        if (m_tensor_op_cd) {
-            m_tensor_op_cd->linsys_solve_cd(dt);
-        } else {
-            m_scalar_op_cd->linsys_solve_cd(dt);
-        }
+        m_scalar_op->linsys_solve_cd(dt);
     }
 };
 

@@ -338,7 +338,9 @@ void incflo::ApplyPredictor(bool incremental_projection)
     // *************************************************************************************
     // Evaluate right hand side and store in velocity
     // *************************************************************************************
-    icns().compute_predictor_rhs(m_diff_type);
+
+    //    icns().compute_predictor_rhs(m_diff_type);
+    icns().compute_predictor_rhs_cd(m_diff_type);
 
     // *************************************************************************************
     // Solve diffusion equation for u* but using eta_old at old time
@@ -348,7 +350,8 @@ void incflo::ApplyPredictor(bool incremental_projection)
         Real dt_diff = (m_diff_type == DiffusionType::Implicit)
                            ? m_time.deltaT()
                            : 0.5 * m_time.deltaT();
-        icns().solve(dt_diff);
+        icns().solve_cd(dt_diff);
+        //        icns().solve(dt_diff);
     }
     icns().post_solve_actions();
 
@@ -559,7 +562,8 @@ void incflo::ApplyCorrector()
     // *************************************************************************************
     // Evaluate right hand side and store in velocity
     // *************************************************************************************
-    icns().compute_corrector_rhs(m_diff_type);
+    // icns().compute_corrector_rhs(m_diff_type);
+    icns().compute_corrector_rhs_cd(m_diff_type);
 
     // *************************************************************************************
     //
@@ -573,7 +577,8 @@ void incflo::ApplyCorrector()
         Real dt_diff = (m_diff_type == DiffusionType::Implicit)
                            ? m_time.deltaT()
                            : 0.5 * m_time.deltaT();
-        icns().solve(dt_diff);
+        // icns().solve(dt_diff);
+        icns().solve_cd(dt_diff);
     }
     icns().post_solve_actions();
 

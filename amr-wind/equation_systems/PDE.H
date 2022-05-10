@@ -64,10 +64,10 @@ public:
             BL_PROFILE("amr-wind::" + this->identifier() + "::initialize");
 
             //! For implicit treatment of convective term
-            if (this->identifier() == "Temperature-MOL") {
+            if (this->identifier() == "Temperature-MOL" ||
+                this->identifier() == "ICNS-MOL") {
                 m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
                     m_fields, m_sim.has_mesh_mapping()));
-
             } else {
                 m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
                     m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));

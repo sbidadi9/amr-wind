@@ -127,7 +127,7 @@ struct ComputeRHSOpIc
                             fld(i, j, k, n) =
                                 det_j * fld_o(i, j, k, n) +
                                 static_cast<amrex::Real>(imask(i, j, k)) * dt *
-                                    (ddt_o(i, j, k, n) +
+                                    (factor * ddt_o(i, j, k, n) +
                                      det_j * src(i, j, k, n) +
                                      factor * diff(i, j, k, n));
 
@@ -250,8 +250,8 @@ struct ComputeRHSOpIc
                             fld(i, j, k, n) =
                                 det_j * fld_o(i, j, k, n) +
                                 static_cast<amrex::Real>(imask(i, j, k)) * dt *
-                                    ((0.5 * ddt_o(i, j, k, n) +
-                                      ddt(i, j, k, n)) +
+                                    ((ofac * ddt_o(i, j, k, n) +
+                                      nfac * ddt(i, j, k, n)) +
                                      ofac * diff_o(i, j, k, n) +
                                      nfac * diff(i, j, k, n) +
                                      det_j * src(i, j, k, n));
