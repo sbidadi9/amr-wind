@@ -76,7 +76,6 @@ public:
             std::is_same<L, amrex::MLABecCecLaplacian>::value>::type* = nullptr)
     {
         const int nlevels = m_pdefields_cd.repo.num_active_levels();
-        const auto& geom = m_pdefields_cd.repo.mesh().Geom();
 
         auto& umac = m_pdefields_cd.repo.get_field("u_mac");
         auto& vmac = m_pdefields_cd.repo.get_field("v_mac");
