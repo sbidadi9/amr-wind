@@ -14,65 +14,6 @@
 namespace amr_wind {
 namespace pde {
 
-//! Class for treating ICNS convective term implicitly
-class ICNSConvDiffTensorOp
-    : public ConvDiffSolverIface<amrex::MLABecCecLaplacian>
-{
-public:
-    ICNSConvDiffTensorOp(PDEFields& fields, const bool mesh_mapping)
-        : ConvDiffSolverIface<amrex::MLABecCecLaplacian>(fields, mesh_mapping)
-    {
-        this->m_solver_cd->setDomainBC(
-            diffusion::get_diffuse_tensor_bc(
-                this->m_pdefields_cd.field, amrex::Orientation::low),
-            diffusion::get_diffuse_tensor_bc(
-                this->m_pdefields_cd.field, amrex::Orientation::high));
-        this->m_applier_cd->setDomainBC(
-            diffusion::get_diffuse_tensor_bc(
-                this->m_pdefields_cd.field, amrex::Orientation::low),
-            diffusion::get_diffuse_tensor_bc(
-                this->m_pdefields_cd.field, amrex::Orientation::high));
-    }
-
-    template <typename Scheme>
-    void compute_diff_term_cd(const FieldState fstate)
-    {
-        this->setup_operator_cd(*this->m_applier_cd, 0.0, -1.0, 0.0, fstate);
-
-        auto tau_state = std::is_same<Scheme, fvm::Godunov>::value
-                             ? FieldState::New
-                             : fstate;
-        auto& divtau = this->m_pdefields_cd.diff_term.state(tau_state);
-
-        amrex::MLMG mlmg(*this->m_applier_cd);
-        mlmg.apply(divtau.vec_ptrs(), this->m_pdefields_cd.field.vec_ptrs());
-
-        const auto& repo = this->m_pdefields_cd.repo;
-        const int nlevels = repo.num_active_levels();
-        const auto& density = m_density_cd.state(fstate);
-
-        for (int lev = 0; lev < nlevels; ++lev) {
-#ifdef _OPENMP
-#pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
-#endif
-            for (amrex::MFIter mfi(divtau(lev), amrex::TilingIfNotGPU());
-                 mfi.isValid(); ++mfi) {
-                const auto& bx = mfi.tilebox();
-                const auto& divtau_arr = divtau(lev).array(mfi);
-                const auto& rho_arr = density(lev).const_array(mfi);
-
-                amrex::ParallelFor(
-                    bx, [=] AMREX_GPU_DEVICE(int i, int j, int k) noexcept {
-                        amrex::Real rhoinv = 1.0 / rho_arr(i, j, k);
-                        divtau_arr(i, j, k, 0) *= rhoinv;
-                        divtau_arr(i, j, k, 1) *= rhoinv;
-                        divtau_arr(i, j, k, 2) *= rhoinv;
-                    });
-            }
-        }
-    }
-};
-
 class ICNSDiffTensorOp : public DiffSolverIface<amrex::MLTensorOp>
 {
 public:
@@ -188,9 +129,10 @@ public:
         m_applier_scalar->setDomainBC(bclo, bchi);
     }
 
-    template <typename Scheme>
-    void compute_diff_term_cd(const FieldState fstate)
-    {}
+    /*    template <typename Scheme>
+        void compute_diff_term_cd(const FieldState fstate)
+        {}
+    */
 
     template <typename Scheme>
     void compute_diff_term(const FieldState fstate)
@@ -651,6 +593,7 @@ public:
 
     template <typename Scheme>
     void compute_diff_term_cd(const FieldState fstate)
+    //    void compute_diff_term(const FieldState fstate)
     {
         auto tau_state = std::is_same<Scheme, fvm::Godunov>::value
                              ? FieldState::New

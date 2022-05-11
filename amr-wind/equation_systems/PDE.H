@@ -63,20 +63,17 @@ public:
 
             BL_PROFILE("amr-wind::" + this->identifier() + "::initialize");
 
-            //! For implicit treatment of convective term
-            if (this->identifier() == "Temperature-MOL" ||
-                this->identifier() == "ICNS-MOL") {
-                m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
-                    m_fields, m_sim.has_mesh_mapping()));
-            } else {
+            if (m_sim.pde_manager().explicit_convection()) {
                 m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
                     m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));
+            } else {
+                m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
+                    m_fields, m_sim.has_mesh_mapping()));
             }
 
             m_turb_op.reset(
                 new TurbulenceOp<PDE>(m_sim.turbulence_model(), m_fields));
         }
-
         bool variable_density =
             (!m_sim.pde_manager().constant_density() ||
              m_sim.physics_manager().contains("MultiPhase"));
@@ -87,6 +84,39 @@ public:
         m_src_op.init_source_terms(m_sim);
     }
 
+    /*
+        void initialize() override
+        {
+            if (PDE::has_diffusion) {
+
+                BL_PROFILE("amr-wind::" + this->identifier() + "::initialize");
+
+                //! For implicit treatment of convective term
+                if (this->identifier() == "Temperature-MOL" ||
+                    this->identifier() == "ICNS-MOL") {
+                    m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
+                        m_fields, m_sim.has_mesh_mapping()));
+                } else {
+                    m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
+                        m_fields, m_sim.has_overset(),
+       m_sim.has_mesh_mapping()));
+                }
+
+                m_turb_op.reset(
+                    new TurbulenceOp<PDE>(m_sim.turbulence_model(), m_fields));
+            }
+
+            bool variable_density =
+                (!m_sim.pde_manager().constant_density() ||
+                 m_sim.physics_manager().contains("MultiPhase"));
+
+            m_adv_op.reset(new AdvectionOp<PDE, Scheme>(
+                m_fields, m_sim.has_overset(), variable_density,
+                m_sim.has_mesh_mapping()));
+            m_src_op.init_source_terms(m_sim);
+        }
+    */
+
     //! Perform update actions after a regrid is performed
     void post_regrid_actions() override
     {
@@ -94,14 +124,12 @@ public:
             BL_PROFILE(
                 "amr-wind::" + this->identifier() + "::post_regrid_actions");
 
-            //! For implicit treatment of convective term
-            if (this->identifier() == "Temperature-MOL") {
-                m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
-                    m_fields, m_sim.has_mesh_mapping()));
-
-            } else {
+            if (m_sim.pde_manager().explicit_convection()) {
                 m_diff_op.reset(new DiffusionOp<PDE, Scheme>(
                     m_fields, m_sim.has_overset(), m_sim.has_mesh_mapping()));
+            } else {
+                m_cdop.reset(new ConvDiffusionOp<PDE, Scheme>(
+                    m_fields, m_sim.has_mesh_mapping()));
             }
         }
 
@@ -138,21 +166,27 @@ public:
             BL_PROFILE(
                 "amr-wind::" + this->identifier() + "::compute_diffusion_term");
             m_bc_op.apply_bcs(fstate);
-            m_diff_op->compute_diff_term(fstate);
+
+            if (m_sim.pde_manager().explicit_convection()) {
+                m_diff_op->compute_diff_term(fstate);
+            } else {
+                m_cdop->compute_diff_term_cd(fstate);
+            }
         }
     }
 
     //! For the new linear operator: MLABecCecLaplacian
-    void compute_diffusion_term_cd(const FieldState fstate) override
-    {
-        if (PDE::has_diffusion) {
-            BL_PROFILE(
-                "amr-wind::" + this->identifier() +
-                "::compute_diffusion_term_cd");
-            m_bc_op.apply_bcs(fstate);
-            m_cdop->compute_diff_term_cd(fstate);
+    /*    void compute_diffusion_term_cd(const FieldState fstate) override
+        {
+            if (PDE::has_diffusion) {
+                BL_PROFILE(
+                    "amr-wind::" + this->identifier() +
+                    "::compute_diffusion_term_cd");
+                m_bc_op.apply_bcs(fstate);
+                m_cdop->compute_diff_term_cd(fstate);
+            }
         }
-    }
+    */
 
     void compute_advection_term(const FieldState fstate) override
     {
@@ -172,52 +206,73 @@ public:
     {
         BL_PROFILE(
             "amr-wind::" + this->identifier() + "::compute_predictor_rhs");
-        m_rhs_op.predictor_rhs(
-            difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+
+        if (m_sim.pde_manager().explicit_convection()) {
+            m_rhs_op.predictor_rhs(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        } else {
+            m_rhs_cdop.predictor_rhs_ic(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        }
     }
 
-    void compute_predictor_rhs_cd(const DiffusionType difftype) override
-    {
-        BL_PROFILE(
-            "amr-wind::" + this->identifier() + "::compute_predictor_rhs");
-        m_rhs_cdop.predictor_rhs_ic(
-            difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
-    }
+    /*    void compute_predictor_rhs_cd(const DiffusionType difftype) override
+        {
+            BL_PROFILE(
+                "amr-wind::" + this->identifier() + "::compute_predictor_rhs");
+            m_rhs_cdop.predictor_rhs_ic(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+
+        }
+    */
 
     void compute_corrector_rhs(const DiffusionType difftype) override
     {
         BL_PROFILE(
             "amr-wind::" + this->identifier() + "::compute_corrector_rhs");
-        m_rhs_op.corrector_rhs(
-            difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+
+        if (m_sim.pde_manager().explicit_convection()) {
+            m_rhs_op.corrector_rhs(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        } else {
+            m_rhs_cdop.corrector_rhs_ic(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        }
     }
 
-    void compute_corrector_rhs_cd(const DiffusionType difftype) override
-    {
-        BL_PROFILE(
-            "amr-wind::" + this->identifier() + "::compute_corrector_rhs");
-        m_rhs_cdop.corrector_rhs_ic(
-            difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
-    }
+    /*    void compute_corrector_rhs_cd(const DiffusionType difftype) override
+        {
+            BL_PROFILE(
+                "amr-wind::" + this->identifier() + "::compute_corrector_rhs");
+            m_rhs_cdop.corrector_rhs_ic(
+                difftype, m_time.deltaT(), m_sim.has_mesh_mapping());
+        }
+    */
 
     void solve(const amrex::Real dt) override
     {
         if (PDE::has_diffusion) {
             BL_PROFILE("amr-wind::" + this->identifier() + "::linsys_solve");
             m_bc_op.apply_bcs(FieldState::New);
-            m_diff_op->linsys_solve(dt);
+
+            if (m_sim.pde_manager().explicit_convection()) {
+                m_diff_op->linsys_solve(dt);
+            } else {
+                m_cdop->linsys_solve_cd(dt);
+            }
         }
     }
 
     //! For the new linear operator: MLABecCecLaplacian
-    void solve_cd(const amrex::Real dt) override
-    {
-        if (PDE::has_diffusion) {
-            BL_PROFILE("amr-wind::" + this->identifier() + "::linsys_solve_cd");
-            m_bc_op.apply_bcs(FieldState::New);
-            m_cdop->linsys_solve_cd(dt);
+    /*    void solve_cd(const amrex::Real dt) override
+        {
+            if (PDE::has_diffusion) {
+                BL_PROFILE("amr-wind::" + this->identifier() +
+       "::linsys_solve_cd"); m_bc_op.apply_bcs(FieldState::New);
+                m_cdop->linsys_solve_cd(dt);
+            }
         }
-    }
+    */
 
     void post_solve_actions() override { m_post_solve_op(m_time.new_time()); }
 
