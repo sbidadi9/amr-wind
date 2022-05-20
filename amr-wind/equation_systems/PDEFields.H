@@ -41,6 +41,9 @@ struct PDEFields
     Field& diff_term;
     //! Convective term for this PDE
     Field& conv_term;
+
+    //! First-Order convective term for this PDE
+    Field& first_order_conv_term;
 };
 
 } // namespace pde

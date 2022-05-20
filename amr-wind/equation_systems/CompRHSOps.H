@@ -70,6 +70,8 @@ struct ComputeRHSOpIc
         auto& src_term = fields.src_term;
         auto& diff_term = fields.diff_term.state(fstate);
         auto& conv_term = fields.conv_term.state(fstate);
+        auto& first_order_conv_term =
+            fields.first_order_conv_term.state(fstate);
         auto& mask_cell = fields.repo.get_int_field("mask_cell");
         Field const* mesh_detJ =
             mesh_mapping ? &(fields.repo.get_mesh_mapping_detJ(FieldLoc::CELL))
@@ -88,6 +90,8 @@ struct ComputeRHSOpIc
                 const auto src = src_term(lev).const_array(mfi);
                 const auto diff = diff_term(lev).const_array(mfi);
                 const auto ddt_o = conv_term(lev).const_array(mfi);
+                const auto foddt_o =
+                    first_order_conv_term(lev).const_array(mfi);
                 const auto imask = mask_cell(lev).const_array(mfi);
                 amrex::Array4<amrex::Real const> detJ =
                     mesh_mapping ? ((*mesh_detJ)(lev).const_array(mfi))
@@ -127,9 +131,17 @@ struct ComputeRHSOpIc
                             fld(i, j, k, n) =
                                 det_j * fld_o(i, j, k, n) +
                                 static_cast<amrex::Real>(imask(i, j, k)) * dt *
-                                    (factor * ddt_o(i, j, k, n) +
+                                    (0.0 * (ddt_o(i, j, k, n) -
+                                            foddt_o(i, j, k, n)) +
                                      det_j * src(i, j, k, n) +
                                      factor * diff(i, j, k, n));
+
+                            /*                            fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt * (factor * ddt_o(i, j, k, n  + det_j *
+                               src(i, j, k, n) + factor * diff(i, j, k, n));
+                            */
 
                             if (difftype == DiffusionType::Explicit) {
                                 fld(i, j, k, n) /= det_j;
@@ -186,9 +198,15 @@ struct ComputeRHSOpIc
         auto& den_old = density.state(FieldState::Old);
         auto& src_term = fields.src_term;
         auto& diff_term = fields.diff_term;
-        auto& conv_term = fields.conv_term;
         auto& diff_term_old = fields.diff_term.state(FieldState::Old);
+
+        auto& conv_term = fields.conv_term;
         auto& conv_term_old = fields.conv_term.state(FieldState::Old);
+
+        auto& first_order_conv_term_old =
+            fields.first_order_conv_term.state(FieldState::Old);
+        auto& first_order_conv_term = fields.first_order_conv_term;
+
         auto& mask_cell = fields.repo.get_int_field("mask_cell");
         Field const* mesh_detJ =
             mesh_mapping ? &(fields.repo.get_mesh_mapping_detJ(FieldLoc::CELL))
@@ -206,9 +224,17 @@ struct ComputeRHSOpIc
                 const auto rho = den_new(lev).const_array(mfi);
                 const auto src = src_term(lev).const_array(mfi);
                 const auto diff = diff_term(lev).const_array(mfi);
-                const auto ddt = conv_term(lev).const_array(mfi);
                 const auto diff_o = diff_term_old(lev).const_array(mfi);
+
+                // Second-order convection
+                const auto ddt = conv_term(lev).const_array(mfi);
                 const auto ddt_o = conv_term_old(lev).const_array(mfi);
+
+                // First-order convection
+                const auto foddt = first_order_conv_term(lev).const_array(mfi);
+                const auto foddt_o =
+                    first_order_conv_term_old(lev).const_array(mfi);
+
                 const auto imask = mask_cell(lev).const_array(mfi);
                 amrex::Array4<amrex::Real const> detJ =
                     mesh_mapping ? ((*mesh_detJ)(lev).const_array(mfi))
@@ -247,14 +273,39 @@ struct ComputeRHSOpIc
                             amrex::Real det_j =
                                 mesh_mapping ? (detJ(i, j, k)) : 1.0;
 
+                            //			    amrex::Real ho_ddt_o = ddt_o(i,j,k,n) -
+                            //foddt_o(i,j,k,n);
+                            amrex::Real ho_ddt =
+                                ddt(i, j, k, n) - foddt(i, j, k, n);
+
                             fld(i, j, k, n) =
                                 det_j * fld_o(i, j, k, n) +
                                 static_cast<amrex::Real>(imask(i, j, k)) * dt *
-                                    ((ofac * ddt_o(i, j, k, n) +
-                                      nfac * ddt(i, j, k, n)) +
-                                     ofac * diff_o(i, j, k, n) +
+                                    (ofac * diff_o(i, j, k, n) +
                                      nfac * diff(i, j, k, n) +
                                      det_j * src(i, j, k, n));
+
+                            /*
+                                                        fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt *
+                                                                ((0.5 * ho_ddt_o
+                               + 0.5 * ho_ddt) + ofac * diff_o(i, j, k, n) +
+                                                                 nfac * diff(i,
+                               j, k, n) + det_j * src(i, j, k, n));
+                            */
+                            /*                            fld(i, j, k, n) =
+                                                            det_j * fld_o(i, j,
+                               k, n) + static_cast<amrex::Real>(imask(i, j, k))
+                               * dt *
+                                                                ((ofac *
+                               ddt_o(i, j, k, n) + nfac * ddt(i, j, k, n)) +
+                                                                 ofac *
+                               diff_o(i, j, k, n) + nfac * diff(i, j, k, n) +
+                                                                 det_j * src(i,
+                               j, k, n));
+                            */
 
                             if (difftype == DiffusionType::Explicit) {
                                 fld(i, j, k, n) /= det_j;

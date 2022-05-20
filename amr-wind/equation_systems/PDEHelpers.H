@@ -18,6 +18,12 @@ inline std::string conv_term_name(const std::string& var)
     return var + "_conv_term";
 }
 
+//! Field name that holds the first-order convective term
+inline std::string first_order_conv_term_name(const std::string& var)
+{
+    return var + "_first_order_conv_term";
+}
+
 //! Field name that holds the diffusion term (divtau and laplacian for scalars)
 inline std::string diff_term_name(const std::string& var)
 {
@@ -63,6 +69,9 @@ PDEFields create_fields_instance(
         Scheme::num_diff_states);
     repo.declare_field(
         pde_impl::conv_term_name(PDE::var_name()), PDE::ndim, 0,
+        Scheme::num_conv_states);
+    repo.declare_field(
+        pde_impl::first_order_conv_term_name(PDE::var_name()), PDE::ndim, 0,
         Scheme::num_conv_states);
 
     PDEFields fields(repo, PDE::var_name());

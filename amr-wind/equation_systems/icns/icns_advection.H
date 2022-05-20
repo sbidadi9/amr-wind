@@ -413,6 +413,8 @@ struct AdvectionOp<ICNS, fvm::MOL>
         const auto& geom = repo.mesh().Geom();
         // cppcheck-suppress constVariable
         auto& conv_term = fields.conv_term.state(fstate);
+        auto& first_order_conv_term =
+            fields.first_order_conv_term.state(fstate);
         auto& dof_field = fields.field.state(fstate);
 
         //
@@ -455,6 +457,17 @@ struct AdvectionOp<ICNS, fvm::MOL>
                 mol::compute_convective_rate(
                     bx, AMREX_SPACEDIM, conv_term(lev).array(mfi), fx, fy, fz,
                     geom[lev].InvCellSizeArray());
+
+                mol::compute_first_order_convective_fluxes(
+                    lev, bx, AMREX_SPACEDIM, fx, fy, fz,
+                    dof_field(lev).const_array(mfi),
+                    u_mac(lev).const_array(mfi), v_mac(lev).const_array(mfi),
+                    w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
+                    dof_field.bcrec_device().data(), geom);
+
+                mol::compute_convective_rate(
+                    bx, AMREX_SPACEDIM, first_order_conv_term(lev).array(mfi),
+                    fx, fy, fz, geom[lev].InvCellSizeArray());
             }
         }
     }
