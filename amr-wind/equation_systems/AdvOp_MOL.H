@@ -35,8 +35,9 @@ struct AdvectionOp<
         , v_mac(fields_in.repo.get_field("v_mac"))
         , w_mac(fields_in.repo.get_field("w_mac"))
     {
-        amrex::ParmParse pp("incflo");
-        pp.query("scheme_order", scheme_order);
+        amrex::ParmParse pp("diffusion");
+        pp.query("mol_scheme_order", mol_scheme_order);
+        pp.query("mol_gradient_relax_factor", mol_gradient_relax_factor);
     }
 
     void preadvect(const FieldState /*unused*/, const amrex::Real /*unused*/) {}
@@ -111,7 +112,8 @@ struct AdvectionOp<
                         u_mac(lev).const_array(mfi),
                         v_mac(lev).const_array(mfi),
                         w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
-                        dof_field.bcrec_device().data(), geom, scheme_order);
+                        dof_field.bcrec_device().data(), geom, mol_scheme_order,
+                        mol_gradient_relax_factor);
 
                     mol::compute_convective_rate(
                         bx, PDE::ndim, conv_term(lev).array(mfi), fx, fy, fz,
@@ -127,7 +129,8 @@ struct AdvectionOp<
     Field& v_mac;
     Field& w_mac;
 
-    int scheme_order = 2;
+    int mol_scheme_order = 2;
+    amrex::Real mol_gradient_relax_factor = 1.0;
 };
 
 } // namespace pde

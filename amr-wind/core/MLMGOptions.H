@@ -59,6 +59,12 @@ struct MLMGOptions
     //! Absolute tolerance for convergence checks
     amrex::Real abs_tol{1.0e-14};
 
+    //! Gradient relaxation for implicit convection
+    amrex::Real mol_gradient_relax_factor{1.0};
+
+    //! Scheme order for implicit convection
+    int mol_scheme_order{2};
+
 private:
     void parse_options(const std::string& /*prefix*/);
 

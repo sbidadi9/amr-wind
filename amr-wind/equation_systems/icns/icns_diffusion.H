@@ -557,7 +557,7 @@ public:
         amrex::LPInfo isolve = m_options.lpinfo();
         amrex::LPInfo iapply;
 
-        amrex::Real omega = 0.99;
+        amrex::Real omega = 1.0;
 
         iapply.setMaxCoarseningLevel(0);
         isolve.setMaxCoarseningLevel(0);
@@ -588,6 +588,14 @@ public:
 
             m_solver_scalar[i]->setRelaxation(omega);
             m_applier_scalar[i]->setRelaxation(omega);
+
+            m_solver_scalar[i]->setGradientRelaxation(
+                m_options.mol_gradient_relax_factor);
+            m_applier_scalar[i]->setGradientRelaxation(
+                m_options.mol_gradient_relax_factor);
+
+            m_solver_scalar[i]->setSchemeOrder(m_options.mol_scheme_order);
+            m_applier_scalar[i]->setSchemeOrder(m_options.mol_scheme_order);
         }
     }
 

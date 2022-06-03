@@ -362,17 +362,19 @@ struct AdvectionOp<ICNS, fvm::MOL>
         PDEFields& fields_in,
         bool has_overset,
         bool variable_density,
-        bool mesh_mapping)
+        bool mesh_mapping,
+        const std::string& prefix = "diffusion")
         : fields(fields_in)
         , u_mac(fields_in.repo.get_field("u_mac"))
         , v_mac(fields_in.repo.get_field("v_mac"))
         , w_mac(fields_in.repo.get_field("w_mac"))
         , m_mesh_mapping(mesh_mapping)
+        , m_options(prefix, fields.field.name() + "_" + prefix)
         , m_macproj_op(
               fields.repo, has_overset, variable_density, m_mesh_mapping)
     {
-        amrex::ParmParse pp("incflo");
-        pp.query("scheme_order", scheme_order);
+        mol_scheme_order = m_options.mol_scheme_order;
+        mol_gradient_relax_factor = m_options.mol_gradient_relax_factor;
     }
 
     void preadvect(const FieldState fstate, const amrex::Real dt)
@@ -451,7 +453,8 @@ struct AdvectionOp<ICNS, fvm::MOL>
                     dof_field(lev).const_array(mfi),
                     u_mac(lev).const_array(mfi), v_mac(lev).const_array(mfi),
                     w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
-                    dof_field.bcrec_device().data(), geom, scheme_order);
+                    dof_field.bcrec_device().data(), geom, mol_scheme_order,
+                    mol_gradient_relax_factor);
 
                 mol::compute_convective_rate(
                     bx, AMREX_SPACEDIM, conv_term(lev).array(mfi), fx, fy, fz,
@@ -466,7 +469,10 @@ struct AdvectionOp<ICNS, fvm::MOL>
     Field& w_mac;
 
     bool m_mesh_mapping;
-    int scheme_order;
+    int mol_scheme_order;
+    amrex::Real mol_gradient_relax_factor;
+
+    MLMGOptions m_options;
 
     MacProjOp m_macproj_op;
 };

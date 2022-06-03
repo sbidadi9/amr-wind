@@ -21,6 +21,76 @@ inline Real getFaceStateUpwind(
     return edstate;
 }
 
+inline Real getFaceStateHOUupwind(
+    Real const& edgeVel,
+    Real const& leftState,
+    Real const& rightState,
+    Real const& slopeLeftState,
+    Real const& slopeRightState,
+    Real gradient_relax_factor)
+{
+    Real edstate = 0.0;
+
+    if (edgeVel > eps) {
+        edstate = leftState + 0.5 * gradient_relax_factor * slopeLeftState;
+    }
+    if (edgeVel < -eps) {
+        edstate = rightState - 0.5 * gradient_relax_factor * slopeRightState;
+    }
+    if (fabs(edgeVel) <= eps) {
+        edstate = 0.5 * (leftState + rightState);
+    }
+    return edstate;
+}
+
+inline Real incflo_xslope(
+    int i,
+    int j,
+    int k,
+    int n,
+    amrex::Array4<amrex::Real const> const& vcc) noexcept
+{
+    amrex::Real dl = 2.0 * (vcc(i, j, k, n) - vcc(i - 1, j, k, n));
+    amrex::Real dr = 2.0 * (vcc(i + 1, j, k, n) - vcc(i, j, k, n));
+    amrex::Real dc = 0.5 * (vcc(i + 1, j, k, n) - vcc(i - 1, j, k, n));
+    amrex::Real slope = amrex::min(
+        amrex::Math::abs(dl), amrex::Math::abs(dc), amrex::Math::abs(dr));
+    slope = (dr * dl > 0.0) ? slope : 0.0;
+    return (dc > 0.0) ? slope : -slope;
+}
+
+inline Real incflo_yslope(
+    int i,
+    int j,
+    int k,
+    int n,
+    amrex::Array4<amrex::Real const> const& vcc) noexcept
+{
+    amrex::Real dl = 2.0 * (vcc(i, j, k, n) - vcc(i, j - 1, k, n));
+    amrex::Real dr = 2.0 * (vcc(i, j + 1, k, n) - vcc(i, j, k, n));
+    amrex::Real dc = 0.5 * (vcc(i, j + 1, k, n) - vcc(i, j - 1, k, n));
+    amrex::Real slope = amrex::min(
+        amrex::Math::abs(dl), amrex::Math::abs(dc), amrex::Math::abs(dr));
+    slope = (dr * dl > 0.0) ? slope : 0.0;
+    return (dc > 0.0) ? slope : -slope;
+}
+
+inline Real incflo_zslope(
+    int i,
+    int j,
+    int k,
+    int n,
+    amrex::Array4<amrex::Real const> const& vcc) noexcept
+{
+    amrex::Real dl = 2.0 * (vcc(i, j, k, n) - vcc(i, j, k - 1, n));
+    amrex::Real dr = 2.0 * (vcc(i, j, k + 1, n) - vcc(i, j, k, n));
+    amrex::Real dc = 0.5 * (vcc(i, j, k + 1, n) - vcc(i, j, k - 1, n));
+    amrex::Real slope = amrex::min(
+        amrex::Math::abs(dl), amrex::Math::abs(dc), amrex::Math::abs(dr));
+    slope = (dr * dl > 0.0) ? slope : 0.0;
+    return (dc > 0.0) ? slope : -slope;
+}
+
 inline Real
 getCellUpwindCoeff(Real const& leftedgeVel, Real const& rightedgeVel)
 {
@@ -139,7 +209,9 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void mlabecceclap_adotx(
     Real alpha,
     Real beta,
     Real eta,
-    int ncomp) noexcept
+    int ncomp,
+    Real gradient_relax_factor,
+    Real scheme_order) noexcept
 {
     const Real dhxsq = beta * dxinv[0] * dxinv[0];
     const Real dhysq = beta * dxinv[1] * dxinv[1];
@@ -151,11 +223,92 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void mlabecceclap_adotx(
     const auto lo = amrex::lbound(box);
     const auto hi = amrex::ubound(box);
 
+    Real conv_term = 0.0;
+
     for (int n = 0; n < ncomp; ++n) {
         for (int k = lo.z; k <= hi.z; ++k) {
             for (int j = lo.y; j <= hi.y; ++j) {
                 AMREX_PRAGMA_SIMD
                 for (int i = lo.x; i <= hi.x; ++i) {
+
+                    if (scheme_order == 1) {
+                        conv_term =
+                            dhx * a(i, j, k) *
+                                (cX(i + 1, j, k, n) * getFaceStateUpwind(
+                                                          cX(i + 1, j, k, n),
+                                                          x(i, j, k, n),
+                                                          x(i + 1, j, k, n)) -
+                                 cX(i, j, k, n) * getFaceStateUpwind(
+                                                      cX(i, j, k, n),
+                                                      x(i - 1, j, k, n),
+                                                      x(i, j, k, n))) +
+                            dhy * a(i, j, k) *
+                                (cY(i, j + 1, k, n) * getFaceStateUpwind(
+                                                          cY(i, j + 1, k, n),
+                                                          x(i, j, k, n),
+                                                          x(i, j + 1, k, n)) -
+                                 cY(i, j, k, n) * getFaceStateUpwind(
+                                                      cY(i, j, k, n),
+                                                      x(i, j - 1, k, n),
+                                                      x(i, j, k, n))) +
+                            dhz * a(i, j, k) *
+                                (cZ(i, j, k + 1, n) * getFaceStateUpwind(
+                                                          cZ(i, j, k + 1, n),
+                                                          x(i, j, k, n),
+                                                          x(i, j, k + 1, n)) -
+                                 cZ(i, j, k, n) * getFaceStateUpwind(
+                                                      cZ(i, j, k, n),
+                                                      x(i, j, k - 1, n),
+                                                      x(i, j, k, n)));
+                    } else {
+                        conv_term =
+                            dhx * a(i, j, k) *
+                                (cX(i + 1, j, k, n) *
+                                     getFaceStateHOUupwind(
+                                         cX(i + 1, j, k, n), x(i, j, k, n),
+                                         x(i + 1, j, k, n),
+                                         incflo_xslope(i, j, k, n, x),
+                                         incflo_xslope(i + 1, j, k, n, x),
+                                         gradient_relax_factor) -
+                                 cX(i, j, k, n) *
+                                     getFaceStateHOUupwind(
+                                         cX(i, j, k, n), x(i - 1, j, k, n),
+                                         x(i, j, k, n),
+                                         incflo_xslope(i - 1, j, k, n, x),
+                                         incflo_xslope(i, j, k, n, x),
+                                         gradient_relax_factor)) +
+                            dhy * a(i, j, k) *
+                                (cY(i, j + 1, k, n) *
+                                     getFaceStateHOUupwind(
+                                         cY(i, j + 1, k, n), x(i, j, k, n),
+                                         x(i, j + 1, k, n),
+                                         incflo_yslope(i, j, k, n, x),
+                                         incflo_yslope(i, j + 1, k, n, x),
+                                         gradient_relax_factor) -
+                                 cY(i, j, k, n) *
+                                     getFaceStateHOUupwind(
+                                         cY(i, j, k, n), x(i, j - 1, k, n),
+                                         x(i, j, k, n),
+                                         incflo_yslope(i, j - 1, k, n, x),
+                                         incflo_yslope(i, j, k, n, x),
+                                         gradient_relax_factor)) +
+                            dhz * a(i, j, k) *
+                                (cZ(i, j, k + 1, n) *
+                                     getFaceStateHOUupwind(
+                                         cZ(i, j, k + 1, n), x(i, j, k, n),
+                                         x(i, j, k + 1, n),
+                                         incflo_zslope(i, j, k, n, x),
+                                         incflo_zslope(i, j, k + 1, n, x),
+                                         gradient_relax_factor) -
+                                 cZ(i, j, k, n) *
+                                     getFaceStateHOUupwind(
+                                         cZ(i, j, k, n), x(i, j, k - 1, n),
+                                         x(i, j, k, n),
+                                         incflo_zslope(i, j, k - 1, n, x),
+                                         incflo_zslope(i, j, k, n, x),
+                                         gradient_relax_factor));
+                    }
+
                     y(i, j, k, n) =
                         alpha * a(i, j, k) * x(i, j, k, n) -
                         dhxsq * (bX(i + 1, j, k, n) *
@@ -170,33 +323,7 @@ AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE void mlabecceclap_adotx(
                                      (x(i, j, k + 1, n) - x(i, j, k, n)) -
                                  bZ(i, j, k, n) *
                                      (x(i, j, k, n) - x(i, j, k - 1, n))) -
-                        dhx * a(i, j, k) *
-                            (cX(i + 1, j, k, n) * getFaceStateUpwind(
-                                                      cX(i + 1, j, k, n),
-                                                      x(i, j, k, n),
-                                                      x(i + 1, j, k, n)) -
-                             cX(i, j, k, n) * getFaceStateUpwind(
-                                                  cX(i, j, k, n),
-                                                  x(i - 1, j, k, n),
-                                                  x(i, j, k, n))) -
-                        dhy * a(i, j, k) *
-                            (cY(i, j + 1, k, n) * getFaceStateUpwind(
-                                                      cY(i, j + 1, k, n),
-                                                      x(i, j, k, n),
-                                                      x(i, j + 1, k, n)) -
-                             cY(i, j, k, n) * getFaceStateUpwind(
-                                                  cY(i, j, k, n),
-                                                  x(i, j - 1, k, n),
-                                                  x(i, j, k, n))) -
-                        dhz * a(i, j, k) *
-                            (cZ(i, j, k + 1, n) * getFaceStateUpwind(
-                                                      cZ(i, j, k + 1, n),
-                                                      x(i, j, k, n),
-                                                      x(i, j, k + 1, n)) -
-                             cZ(i, j, k, n) * getFaceStateUpwind(
-                                                  cZ(i, j, k, n),
-                                                  x(i, j, k - 1, n),
-                                                  x(i, j, k, n)));
+                        conv_term;
                 }
             }
         }
