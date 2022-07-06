@@ -373,7 +373,10 @@ struct AdvectionOp<ICNS, fvm::MOL>
         , m_mesh_mapping(mesh_mapping)
         , m_macproj_op(
               fields.repo, has_overset, variable_density, m_mesh_mapping)
-    {}
+    {
+        amrex::ParmParse pp("ICNS");
+        pp.query("gradient_relax_factor", m_gradient_relax_factor);
+    }
 
     void preadvect(const FieldState fstate, const amrex::Real dt)
     {
@@ -451,7 +454,8 @@ struct AdvectionOp<ICNS, fvm::MOL>
                     dof_field(lev).const_array(mfi),
                     u_mac(lev).const_array(mfi), v_mac(lev).const_array(mfi),
                     w_mac(lev).const_array(mfi), dof_field.bcrec().data(),
-                    dof_field.bcrec_device().data(), geom);
+                    dof_field.bcrec_device().data(), geom,
+                    m_gradient_relax_factor);
 
                 mol::compute_convective_rate(
                     bx, AMREX_SPACEDIM, conv_term(lev).array(mfi), fx, fy, fz,
@@ -468,6 +472,8 @@ struct AdvectionOp<ICNS, fvm::MOL>
     bool m_mesh_mapping;
 
     MacProjOp m_macproj_op;
+
+    amrex::Real m_gradient_relax_factor{1.0};
 };
 
 } // namespace pde
