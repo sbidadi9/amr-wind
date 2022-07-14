@@ -66,10 +66,6 @@ public:
     void
     setCCoeffs(int amrlev, const Array<MultiFab const*, AMREX_SPACEDIM>& eta);
 
-    void checkDiagonalDominance(int amrlev, int mglev);
-    void getDiagonal(int amrlev, MultiFab& diag);
-    void getNetFaceCoeff(MultiFab& coeff_d, int dir);
-
     virtual int getNComp() const override { return m_ncomp; }
 
     virtual bool needsUpdate() const override

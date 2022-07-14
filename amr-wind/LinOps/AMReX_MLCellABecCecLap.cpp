@@ -1,7 +1,6 @@
-
 #include "AMReX_MLCellABecCecLap.H"
-#include "AMReX_MLCellABecCecLap_K.H"
 
+#include "AMReX_MLCellABecCecLap_K.H"
 #include <AMReX_MLLinOp_K.H>
 
 #ifdef AMREX_USE_PETSC
