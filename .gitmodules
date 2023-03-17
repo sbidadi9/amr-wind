@@ -7,3 +7,6 @@
 [submodule "submods/AMReX-Hydro"]
 	path = submods/AMReX-Hydro
 	url = https://github.com/AMReX-Codes/AMReX-Hydro
+[submodule "amrex"]
+	path = amrex
+	url = ../../amr-wind-turb-gen/amr-wind/submods/amrex/
