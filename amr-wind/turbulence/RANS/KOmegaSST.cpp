@@ -182,27 +182,31 @@ void KOmegaSST<Transport>::update_turbulent_viscosity(const FieldState fstate)
 
                     f1_arr(i, j, k) = tmp_f1;
 
+                    shear_prod_arr(i, j, k) = amrex::min<amrex::Real>(
+                        amrex::max<amrex::Real>(mu_arr(i, j, k) * tmp4 * tmp4, 0.0),
+                        10.0 * beta_star * rho_arr(i, j, k) * tke_arr(i, j, k) *
+                            sdr_arr(i, j, k));
+ 
+                    // For TKE equation:
                     diss_arr(i, j, k) = -beta_star * rho_arr(i, j, k) *
                                         tke_arr(i, j, k) * sdr_arr(i, j, k);
                     tke_lhs_arr(i, j, k) = 0.5 * beta_star * rho_arr(i, j, k) *
                                            sdr_arr(i, j, k) * deltaT;
 
-                    shear_prod_arr(i, j, k) = amrex::min<amrex::Real>(
-                        amrex::max<amrex::Real>(mu_arr(i, j, k) * tmp4 * tmp4, 0.0),
-                        10.0 * beta_star * rho_arr(i, j, k) * tke_arr(i, j, k) *
-                            sdr_arr(i, j, k));
-
-                    sdr_lhs_arr(i, j, k) = 0.5 * rho_arr(i, j, k) * beta *
-                                           sdr_arr(i, j, k) * deltaT;
-
+                    // For SDR equation:                 
+                    amrex::Real cross_diffusion = (1.0 - tmp_f1) * 2.0 * rho_arr(i, j, k) * sigma_omega2 *
+                            gko / (sdr_arr(i, j, k) + 1e-15);
+ 
+                    sdr_lhs_arr(i, j, k) = (0.5 * rho_arr(i, j, k) * beta *
+                                           sdr_arr(i, j, k) 
+                                           + 0.5*abs(cross_diffusion)/(sdr_arr(i, j, k) + 1e-15)) * deltaT;
+                                               
                     sdr_src_arr(i, j, k) =
                         rho_arr(i, j, k) * alpha * shear_prod_arr(i, j, k) /
-                            amrex::max<amrex::Real>(mu_arr(i, j, k), 1.0e-16) +
-                        (1.0 - tmp_f1) * 2.0 * rho_arr(i, j, k) * sigma_omega2 *
-                            gko / (sdr_arr(i, j, k) + 1e-15);
+                            amrex::max<amrex::Real>(mu_arr(i, j, k), 1.0e-16);
 
                     sdr_diss_arr(i, j, k) = -rho_arr(i, j, k) * beta *
-                                            sdr_arr(i, j, k) * sdr_arr(i, j, k);
+                                            sdr_arr(i, j, k) * sdr_arr(i, j, k) + cross_diffusion;
                 });
         }
     }
