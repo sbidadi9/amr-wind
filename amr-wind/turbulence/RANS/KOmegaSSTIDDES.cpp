@@ -212,19 +212,14 @@ void KOmegaSSTIDDES<Transport>::update_turbulent_viscosity(
                             gko / (sdr_arr(i, j, k) + 1e-15);
 
 
-                    sdr_lhs_arr(i, j, k) = (0.5 * rho_arr(i, j, k) * beta *
-                                           sdr_arr(i, j, k) + 
-                                           0.5*abs(cross_diffusion)/(sdr_arr(i, j, k) + 1e-15)) * deltaT;
+                    sdr_lhs_arr(i, j, k) = (rho_arr(i, j, k) * beta * sdr_arr(i, j, k) + 
+                                            0.5*abs(cross_diffusion)/(sdr_arr(i, j, k) + 1e-15)) * deltaT;
 
                     sdr_src_arr(i, j, k) = 
                         rho_arr(i, j, k) * alpha * shear_prod_arr(i, j, k) / 
                             amrex::max<amrex::Real>(mu_arr(i, j, k), 1.0e-16); 
 
-                    amrex::Real destruction_omega =  -rho_arr(i, j, k) * beta * sdr_arr(i, j, k) * sdr_arr(i, j, k); 
-
-                    destruction_omega = -1.0*amrex::min<amrex::Real>(abs(destruction_omega), 10.0*sdr_src_arr(i, j, k));
-
-                    sdr_diss_arr(i, j, k) = destruction_omega + cross_diffusion;
+                    sdr_diss_arr(i, j, k) = cross_diffusion;
                 });
         }
     }
